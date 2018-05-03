@@ -37,10 +37,9 @@ Pass the additional -DLSLAPPS_gNEEDaccess=ON argument to the cmake command at th
 
 ## Usage Instructions
 
-The usage instructions are a bit complicated right now until the GUI elements for each device are built out.
-
     * Use g.NEEDaccessDemo client app to check impedances.
-        * For g.HIamp, the gNEEDaccess LSL app can refresh impedance values too, but the g.NEEDaccessDemo client has a nicer user interface.
+        * The gNEEDaccess LSL app can refresh impedance values for some of the supported devices, but the g.NEEDaccessDemo client has a nicer user interface for this
+    * Quite the g.NEEDaccessDemo client before running this LSL app.
 
 1. Run gNEEDaccess.exe
 1. Set the server IP and port, client port, then click Scan.
