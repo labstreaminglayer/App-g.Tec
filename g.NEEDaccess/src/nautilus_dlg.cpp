@@ -520,6 +520,10 @@ void NautilusDlg::accept()
 		dev_cfg->Channels[chan_ix].UsedForNoiseReduction = chan_noise->isChecked();
 	}
 
-
+	// The following items are set in the gNautilusDemo.cpp but are not exposed via GUI elements:
+	dev_cfg->Slave = FALSE;
+	dev_cfg->NumberOfScans = 0;
+	dev_cfg->InputSignal = GDS_GNAUTILUS_INPUT_SIGNAL_ELECTRODE;
+	
 	QDialog::accept();
 }
