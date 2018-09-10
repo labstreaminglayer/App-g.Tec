@@ -12,7 +12,7 @@ cmake_minimum_required(VERSION 3.5)
 #: was chosen because it is the first version to support imported targets
 #: (e.g. `boost::thread`). Before setting this to a higher version, please check
 #: if it has arrived in [debian stable](https://packages.debian.org/stable/cmake).
-project(gUSBamp
+project(gUSBampLSL
 	LANGUAGES CXX
 	VERSION 0.1)
 
@@ -41,7 +41,8 @@ if(NOT TARGET LSL::lsl)
 
 #: We also look in `../../LSL/liblsl/build/install`, since that's where liblsl
 #: gets installed by default.
-	list(APPEND LSL_INSTALL_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../LSL/liblsl/build/install")
+	list(APPEND LSL_INSTALL_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../build/install")
+    message(STATUS ${LSL_INSTALL_ROOT})
 
 #: 
 #: We search for the package config in the two possible subfolders.
@@ -83,6 +84,8 @@ find_package(Qt5 REQUIRED COMPONENTS Widgets)
 
 find_package(Threads REQUIRED)
 
+#: ## Boost
+find_package(Boost REQUIRED)
 
 #: If everything succeeds, you can link your app with the vendor SDK
 #: by linking to the imported target.
@@ -97,12 +100,16 @@ add_executable(${PROJECT_NAME} MACOSX_BUNDLE WIN32
 	mainwindow.h
 	mainwindow.ui
 )
+target_include_directories(${PROJECT_NAME}
+    PRIVATE
+    ${gUSBamp_INCLUDE_DIRS})
 target_link_libraries(${PROJECT_NAME}
 	PRIVATE
 	Qt5::Widgets
 	Threads::Threads
 	LSL::lsl
-	gUSBamp
+	${gUSBamp_LIBRARIES}
+	Boost::boost
 )
 
 set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 14)

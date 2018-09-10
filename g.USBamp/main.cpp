@@ -1,4 +1,4 @@
-#include <QtGui/QApplication>
+#include <qapplication.h>
 #include "mainwindow.h"
 #include <string>
 #include <boost/algorithm/string.hpp>

@@ -2,23 +2,32 @@
 
 ## Build
 
-It is expected that this folder location is the labstreaminglayer/Apps/g.Tec/g.USBamp folder.
+It is expected that this folder location is labstreaminglayer/Apps/g.Tec/g.USBamp.
+You must also have a g.tec API installed (see below).
 
-You must also have the gUSBampCAPI installed.
+This app depends on Qt. Please see the parent labstreaminglayer [build instructions](https://github.com/labstreaminglayer/labstreaminglayer/blob/master/doc/BUILD.md)
+for how information on how to obtain Qt and instruct cmake to use it.
 
-### Windows
+```bash
+mkdir build && cd build
+cmake .. -G "Visual Studio 14 2015 Win64" -DQt5_DIR=C:\Qt\5.10.0\msvc2015_64\lib\cmake\Qt5 -DBOOST_ROOT=C:\local\boost_1_65_1
+```
 
-*NOTE*: The gUSBampCAPI has been deprecated in favour of the gNEEDaccess CAPI. There is a g.NEEDaccess LSL app available.
+### gUSBamp API
+
+#### Windows 
+
+The gUSBampCAPI has been deprecated in favour of the gNEEDaccess CAPI. There is a g.NEEDaccess LSL app available.
 This application still uses the legacy API, but our ability to support it is limited, and g.tec will not be able to support it either.
 Please contact g.Tec support directly support@gtec.at to determine if you are eligible for a free upgrade to the g.NEEDaccess API.
 
 Using the deprecated API...
 
-The cmake build system will search for the gUSBampCAPI in C:\Program Files\gtec\gUSBampCAPI\API .
+The cmake build system will search for the gUSBampCAPI in C:\Program Files\gtec\gUSBampCAPI\API.
 This folder is expected to have gUSBamp.h, gUSBamp.dll, and gUSBamp.bin
 If your amp serial number is of the form UA-XXXX.XX.XX, you may need to replace your gUSBamp.dll file with a gUSBamp-for-2.0.dll file and rename to gUSBamp.dll.
 
-### Linux
+#### Linux
 
 There is a g.USBamp Linux CAPI. I haven't added support for this yet. I intend to. If this is urgent to you then please let Chadwick know.
 
