@@ -31,3 +31,6 @@ https://www.boost.org/users/license.html
 
 liblsl, MIT
 https://github.com/labstreaminglayer/liblsl/blob/master/LICENSE
+
+LSL Best Practices GUI Example, MIT
+https://github.com/labstreaminglayer/App-BestPracticesGUI/blob/master/LICENSE.txt

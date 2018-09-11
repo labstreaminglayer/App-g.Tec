@@ -1,63 +1,32 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
-
+#include "ui_mainwindow.h"
 #include <QMainWindow>
-#include <QCloseEvent>
-#include <QFileDialog>
-#include <QMessageBox>
-// TODO: Use STL shared_ptr and thread
-#include <boost/shared_ptr.hpp>
-#include <boost/thread.hpp>
-#include <string>
-#include <vector>
-
-// LSL API
-#include <lsl_cpp.h>
-
-// g.USBamp API
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include "gUSBamp.h"
+#include <atomic>
+#include <memory> //for std::unique_ptr
+#include <thread>
+#include <QMainWindow>
 
 
-namespace Ui {
-class MainWindow;
-}
-
-class MainWindow : public QMainWindow
-{
+namespace Ui { class MainWindow; }
+class MainWindow : public QMainWindow {
     Q_OBJECT
-    
+
 public:
-    explicit MainWindow(QWidget *parent, const std::string &config_file);
-    ~MainWindow();
-    
+	explicit MainWindow(QWidget *parent, const char* config_file);
+	~MainWindow() noexcept override;
+
 private slots:
-    // config file dialog ops (from main menu)
-    void load_config_dialog();
-    void save_config_dialog();
+	void closeEvent(QCloseEvent *ev) override;
+	void toggleRecording(void);
 
-    // start the gUSBamp connection
-    void link();
-
-    // close event (potentially disabled)
-    void closeEvent(QCloseEvent *ev);
 private:
-    // background data reader thread
-	void read_thread(std::string deviceNumber, int chunkSize, int samplingRate, bool isSlave, std::string serialNumber, int channelCount, std::vector<std::string> channelLabels);
-
-
-    // raw config file IO
-    void load_config(const std::string &filename);
-    void save_config(const std::string &filename);
-	
-	HANDLE hDevice;
-	HANDLE hEvent;
-	OVERLAPPED *pOverlapped;
-	bool stop_;											// whether the reader thread is supposed to stop
-    boost::shared_ptr<boost::thread> reader_thread_;	// our reader thread
-
-    Ui::MainWindow *ui;
+	// function for loading / saving the config file
+	void load_config(const QString& filename);
+	void save_config(const QString& filename);
+	std::unique_ptr<std::thread> recording_thread;
+	std::unique_ptr<Ui::MainWindow> ui;	// window pointer
+	std::atomic<bool> shutdown{false};  // flag indicating whether the recording thread should quit
 };
 
 #endif // MAINWINDOW_H
