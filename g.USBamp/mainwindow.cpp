@@ -1,6 +1,7 @@
 #include "ui_mainwindow.h"
 #include "mainwindow.h"
 #include "gUSBamp_LSL_interface.h"
+#include "gUSB_dlg.h"
 
 #include <fstream>
 #include <string>
@@ -14,6 +15,7 @@
 
 MainWindow::MainWindow(QWidget* parent, const char* config_file)
     : QMainWindow(parent), recording_thread(nullptr), ui(new Ui::MainWindow) {
+	sys_config = std::make_shared<gUSB_system_config>();
 	ui->setupUi(this);
 	connect(ui->actionLoad_Configuration, &QAction::triggered, [this]() {
 		load_config(QFileDialog::getOpenFileName(this, "Load Configuration File", "",
@@ -22,6 +24,9 @@ MainWindow::MainWindow(QWidget* parent, const char* config_file)
 	connect(ui->actionSave_Configuration, &QAction::triggered, [this]() {
 		save_config(QFileDialog::getSaveFileName(this, "Save Configuration File", "",
 		                                         "Configuration Files (*.cfg)"));
+	});
+	connect(ui->actionEdit_Configuration, &QAction::triggered, [this]() {
+		edit_config();
 	});
 	connect(ui->actionQuit, &QAction::triggered, this, &MainWindow::close);
 	connect(ui->actionAbout, &QAction::triggered, [this]() {
@@ -46,6 +51,12 @@ void MainWindow::save_config(const QString& filename) {
 	settings.setValue("name", ui->nameField->text());
 	settings.setValue("device", ui->deviceField->value());
 	settings.sync();
+}
+void MainWindow::edit_config()
+{
+	GUSBDlg cfg_dlg;
+	cfg_dlg.set_config(sys_config);
+	cfg_dlg.exec();
 }
 
 

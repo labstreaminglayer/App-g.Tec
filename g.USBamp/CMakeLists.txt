@@ -35,6 +35,10 @@ add_executable(${PROJECT_NAME} MACOSX_BUNDLE WIN32
 	mainwindow.ui
 	gUSBamp_LSL_interface.h
 	gUSBamp_LSL_interface.cpp
+	gUSBamp_config.h
+	gUSB_dlg.cpp
+	gUSB_dlg.h
+	gUSB_dlg.ui
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${gUSBamp_INCLUDE_DIRS})

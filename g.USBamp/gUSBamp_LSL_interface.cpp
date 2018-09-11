@@ -1,8 +1,10 @@
 #include "gUSBamp_LSL_interface.h"
 #include <chrono>
 #include <thread>
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32) && !defined(__CYGWIN__)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#endif
 #include "gUSBamp.h"
 
 gUSBamp_LSL_interface::gUSBamp_LSL_interface(int32_t device_param)

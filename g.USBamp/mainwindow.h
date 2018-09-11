@@ -6,6 +6,7 @@
 #include <memory> //for std::unique_ptr
 #include <thread>
 #include <QMainWindow>
+#include "gUSBamp_config.h"
 
 
 namespace Ui { class MainWindow; }
@@ -24,8 +25,10 @@ private:
 	// function for loading / saving the config file
 	void load_config(const QString& filename);
 	void save_config(const QString& filename);
+	void edit_config();
 	std::unique_ptr<std::thread> recording_thread;
 	std::unique_ptr<Ui::MainWindow> ui;	// window pointer
+	std::shared_ptr<gUSB_system_config> sys_config;
 	std::atomic<bool> shutdown{false};  // flag indicating whether the recording thread should quit
 };
 

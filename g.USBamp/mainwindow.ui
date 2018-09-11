@@ -60,7 +60,7 @@
      <x>0</x>
      <y>0</y>
      <width>190</width>
-     <height>30</height>
+     <height>21</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
@@ -69,6 +69,7 @@
     </property>
     <addaction name="actionLoad_Configuration"/>
     <addaction name="actionSave_Configuration"/>
+    <addaction name="actionEdit_Configuration"/>
     <addaction name="separator"/>
     <addaction name="actionQuit"/>
    </widget>
@@ -109,6 +110,14 @@
   <action name="actionAbout">
    <property name="text">
     <string>&amp;About</string>
+   </property>
+  </action>
+  <action name="actionEdit_Configuration">
+   <property name="text">
+    <string>&amp;Edit Configuration</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+E</string>
    </property>
   </action>
  </widget>
