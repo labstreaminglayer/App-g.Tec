@@ -4,6 +4,7 @@ set(gUSBampCAPI_ROOT_DIR
     PATH
     "Directory to search for gUSBamp SDK")
 
+# TODO: if(WIN32)
 find_path(gUSBamp_INCLUDE_DIR
     NAMES
         gUSBamp.h
@@ -16,7 +17,7 @@ find_path(gUSBamp_INCLUDE_DIR
 )
 list(APPEND gUSBamp_INCLUDE_DIRS ${gUSBamp_INCLUDE_DIR})
 
-find_library(gUSBamp_LIBRARIES
+find_library(gUSBamp_LIBRARY
     NAMES
         gUSBamp
     PATHS
@@ -29,19 +30,19 @@ find_file(gUSBamp_BINARIES
     PATHS
         ${gUSBamp_INCLUDE_DIRS}
 )
-
-SET(gUSBamp_FOUND TRUE)
+# TODO: elseif(UNIX)
+# TODO: endif()  # No apple support.
 
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(gUSBamp
-    DEFAULT_MSG
-    gUSBamp_FOUND
-    gUSBamp_INCLUDE_DIRS
-    gUSBamp_LIBRARIES
-    gUSBamp_BINARIES)
+FIND_PACKAGE_HANDLE_STANDARD_ARGS(gUSBamp DEFAULT_MSG gUSBamp_INCLUDE_DIRS gUSBamp_LIBRARY)
+
+if(gUSBamp_FOUND)
+  set(gUSBamp_LIBRARIES ${gUSBamp_LIBRARY})
+endif()
 
 mark_as_advanced(
     gUSBamp_FOUND
     gUSBamp_INCLUDE_DIRS
     gUSBamp_LIBRARIES
-    gUSBamp_BINARIES)
+    gUSBamp_BINARIES
+)

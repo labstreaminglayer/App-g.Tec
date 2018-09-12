@@ -5,8 +5,7 @@
 #include <QCloseEvent>
 #include <QFileDialog>
 #include <QMessageBox>
-// TODO: Use STL shared_ptr and thread
-#include <boost/shared_ptr.hpp>
+#include <memory>
 #include <boost/thread.hpp>
 #include <string>
 #include <vector>
@@ -55,7 +54,7 @@ private:
 	HANDLE hEvent;
 	OVERLAPPED *pOverlapped;
 	bool stop_;											// whether the reader thread is supposed to stop
-    boost::shared_ptr<boost::thread> reader_thread_;	// our reader thread
+    std::shared_ptr<boost::thread> reader_thread_;	// our reader thread
 
     Ui::MainWindow *ui;
 };
