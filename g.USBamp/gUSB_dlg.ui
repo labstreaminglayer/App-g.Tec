@@ -9,99 +9,141 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>800</width>
-    <height>1000</height>
+    <width>450</width>
+    <height>565</height>
    </rect>
   </property>
   <property name="windowTitle">
    <string>Configure g.USBamp(s)</string>
   </property>
-  <widget class="QWidget" name="verticalLayoutWidget">
-   <property name="geometry">
-    <rect>
-     <x>5</x>
-     <y>5</y>
-     <width>788</width>
-     <height>990</height>
-    </rect>
-   </property>
-   <layout class="QVBoxLayout" name="verticalLayout" stretch="0,0,1,1">
-    <property name="leftMargin">
-     <number>5</number>
-    </property>
-    <property name="topMargin">
-     <number>5</number>
-    </property>
-    <property name="rightMargin">
-     <number>5</number>
-    </property>
-    <property name="bottomMargin">
-     <number>5</number>
-    </property>
-    <item>
-     <layout class="QHBoxLayout" name="configLayout">
-      <item>
-       <widget class="QPushButton" name="loadCfgButton">
-        <property name="text">
-         <string>Load Config</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QPushButton" name="saveCfgButton">
-        <property name="text">
-         <string>Save Config</string>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </item>
-    <item>
-     <layout class="QHBoxLayout" name="filters_layout">
-      <item>
-       <widget class="QComboBox" name="bandpass_comboBox"/>
-      </item>
-      <item>
-       <widget class="QPushButton" name="bandpass_pushButton">
-        <property name="text">
-         <string>Apply Bandpass</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QComboBox" name="notch_comboBox"/>
-      </item>
-      <item>
-       <widget class="QPushButton" name="notch_pushButton">
-        <property name="text">
-         <string>Apply Notch</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QPushButton" name="impedance_pushButton">
-        <property name="text">
-         <string>Refresh Impedances</string>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </item>
-    <item>
-     <layout class="QGridLayout" name="devices_layout" rowstretch="1" columnstretch="1"/>
-    </item>
-    <item>
-     <widget class="QDialogButtonBox" name="buttonBox">
-      <property name="orientation">
-       <enum>Qt::Horizontal</enum>
-      </property>
-      <property name="standardButtons">
-       <set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set>
-      </property>
-     </widget>
-    </item>
-   </layout>
-  </widget>
+  <layout class="QGridLayout" name="gridLayout">
+   <item row="0" column="0">
+    <layout class="QVBoxLayout" name="verticalLayout" stretch="0,0,0,0">
+     <item>
+      <layout class="QHBoxLayout" name="commonConfig_layout">
+       <item>
+        <widget class="QLabel" name="sampleRate_label">
+         <property name="text">
+          <string>Sample Rate:</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QComboBox" name="sampleRate_combo"/>
+       </item>
+       <item>
+        <spacer name="horizontalSpacer">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>40</width>
+           <height>20</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+       <item>
+        <widget class="QLabel" name="numScans_label">
+         <property name="text">
+          <string>Number of Scans:</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QSpinBox" name="numScans_spinBox">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
+         <property name="maximum">
+          <number>4096</number>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="horizontalSpacer_2">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>40</width>
+           <height>20</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+       <item>
+        <widget class="QLabel" name="driver_label">
+         <property name="text">
+          <string>Driver:</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="driver_value">
+         <property name="text">
+          <string/>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <layout class="QHBoxLayout" name="filters_layout">
+       <item>
+        <widget class="QComboBox" name="bandpass_comboBox"/>
+       </item>
+       <item>
+        <widget class="QPushButton" name="bandpass_pushButton">
+         <property name="text">
+          <string>Apply Bandpass</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QComboBox" name="notch_comboBox"/>
+       </item>
+       <item>
+        <widget class="QPushButton" name="notch_pushButton">
+         <property name="text">
+          <string>Apply Notch</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="impedance_pushButton">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
+         <property name="text">
+          <string>Refresh Impedances</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <widget class="QTabWidget" name="devices_tabWidget">
+       <property name="currentIndex">
+        <number>-1</number>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QDialogButtonBox" name="buttonBox">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="standardButtons">
+        <set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
  </widget>
  <resources/>
  <connections>
@@ -112,12 +154,12 @@
    <slot>accept()</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>248</x>
-     <y>254</y>
+     <x>20</x>
+     <y>20</y>
     </hint>
     <hint type="destinationlabel">
-     <x>157</x>
-     <y>274</y>
+     <x>20</x>
+     <y>20</y>
     </hint>
    </hints>
   </connection>
@@ -128,12 +170,12 @@
    <slot>reject()</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>316</x>
-     <y>260</y>
+     <x>20</x>
+     <y>20</y>
     </hint>
     <hint type="destinationlabel">
-     <x>286</x>
-     <y>274</y>
+     <x>20</x>
+     <y>20</y>
     </hint>
    </hints>
   </connection>

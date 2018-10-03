@@ -29,9 +29,9 @@ private:
 	void update_filters();
 	void update_impedance_table();
 	void accept() override;
-	void apply_filter_to_enabled_chans(int widget_ix, int value);
+	void apply_filter_to_enabled_chans(int widget_ix, QString value);
 
-	std::shared_ptr<gUSB_system_config> m_config;
+	std::shared_ptr<gUSB_system_config> m_sys_config;  // TODO: Make opaque.
 	std::vector<std::string>* m_pChannel_labels;
 	std::vector<double>* m_pChannel_impedances;
 };

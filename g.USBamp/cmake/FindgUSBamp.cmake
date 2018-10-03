@@ -24,17 +24,19 @@ find_library(gUSBamp_LIBRARY
         ${gUSBamp_INCLUDE_DIRS}
 )
 
-find_file(gUSBamp_BINARIES
-    NAMES
-        ${CMAKE_SHARED_LIBRARY_PREFIX}gUSBamp${CMAKE_SHARED_LIBRARY_SUFFIX}
-    PATHS
-        ${gUSBamp_INCLUDE_DIRS}
-)
+#find_file(gUSBamp_BINARIES
+#    NAMES
+#        ${CMAKE_SHARED_LIBRARY_PREFIX}gUSBamp${CMAKE_SHARED_LIBRARY_SUFFIX}
+#    PATHS
+#        ${gUSBamp_INCLUDE_DIRS}
+#)
 # TODO: elseif(UNIX)
 # TODO: endif()  # No apple support.
 
 include(FindPackageHandleStandardArgs)
-FIND_PACKAGE_HANDLE_STANDARD_ARGS(gUSBamp DEFAULT_MSG gUSBamp_INCLUDE_DIRS gUSBamp_LIBRARY)
+FIND_PACKAGE_HANDLE_STANDARD_ARGS(gUSBamp
+    gUSBamp_INCLUDE_DIRS
+    gUSBamp_LIBRARY)
 
 if(gUSBamp_FOUND)
   set(gUSBamp_LIBRARIES ${gUSBamp_LIBRARY})
@@ -44,5 +46,5 @@ mark_as_advanced(
     gUSBamp_FOUND
     gUSBamp_INCLUDE_DIRS
     gUSBamp_LIBRARIES
-    gUSBamp_BINARIES
+    #gUSBamp_BINARIES
 )

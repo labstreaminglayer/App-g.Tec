@@ -1,51 +1,41 @@
 #include "gUSB_dlg.h"
 #include "ui_gUSB_dlg.h"
-#include "GDSClientAPI.h"
-#include "GDSClientAPI_gUSBamp.h"
+#include "gUSBamp_config.h"  // TODO: Should only use gUSBamp_LSL_interface.h
 #include <QtWidgets>
 #include <algorithm>
-
 
 GUSBDlg::GUSBDlg(QWidget *parent)
 	: QDialog(parent),
 	  ui(new Ui::GUSBDlg)
 {
 	ui->setupUi(this);
-}
 
+	for each (uint32_t srate in gUSBamp_sample_rates)
+	{
+		ui->sampleRate_combo->addItem(QString::number(srate));
+	}
+	connect(ui->sampleRate_combo, SIGNAL(currentIndexChanged(int)), this, SLOT(handle_sampleRateChange(int)));
+}
 
 void GUSBDlg::set_config(std::shared_ptr<gUSB_system_config> config)
 {
-	m_config = config;
+	m_sys_config = config;
 	create_widgets();
 	update_ui();
 }
 
-
 void GUSBDlg::create_widgets()
 {
-	for (size_t dev_ix = 0; i < CHAINED_DEVICES_MAX; dev_ix++)
-	{	
-		GDS_GUSBAMP_CONFIGURATION dev_cfg = m_config.Devices[dev_ix];
-
-		QLabel *name_label = new QLabel(dev_cfg.DeviceInfo.Name);
-
-		QLabel *samplerate_label = new QLabel("Sampling Rate:");
-		QComboBox *samplerate_box = new QComboBox;
-		// TODO: Use GDS_GUSBAMP_GetSupportedSamplingRates instead of gUSBamp_sample_rates
-		for each (uint32_t srate in gUSBamp_sample_rates)
-		{
-			samplerate_box->addItem(QString::number(srate));
-		}
-		samplerate_box->setEnabled(cfg_ix == 0);
-		if (cfg_ix == 0)
-		{
-			connect(samplerate_box, SIGNAL(currentIndexChanged(int)), this, SLOT(handle_sampleRateChange(int)));
-		}
+	size_t dev_ix = 0;
+	for (auto dev_cfg = m_sys_config->Devices.begin(); dev_cfg != m_sys_config->Devices.end(); dev_cfg++, dev_ix++) {
 
 		// Create widgets for binary switches.
+		QCheckBox *enabled_box = new QCheckBox(tr("Enabled"));
+		enabled_box->setEnabled(false);
+		QCheckBox *master_box = new QCheckBox(tr("Master"));
 		QCheckBox *shortcut_box = new QCheckBox(tr("ShortCut"));
 		QCheckBox *counter_box = new QCheckBox(tr("Counter"));
+		counter_box->setEnabled(false);
 		QCheckBox *trigger_box = new QCheckBox(tr("Trigger"));
 		
 		// Create widgets for common grounds and references.
@@ -71,40 +61,34 @@ void GUSBDlg::create_widgets()
 		chan_table->setHorizontalHeaderLabels(h_labels);
 		for (int chan_ix = 0; chan_ix < GDS_GUSBAMP_CHANNELS_MAX; chan_ix++)
 		{
-			int chan_label_ix = (GDS_GUSBAMP_CHANNELS_MAX*(int)cfg_ix) + chan_ix;
-			if (m_pChannel_labels->size() > chan_label_ix)
-			{
-				chan_table->setItem(chan_ix, 0, new QTableWidgetItem(QString::fromStdString(m_pChannel_labels->at(chan_label_ix))));
-			}
-			else
-			{
-				chan_table->setItem(chan_ix, 0, new QTableWidgetItem(tr("%1").arg(chan_label_ix + 1)));
-			}
+			chan_table->setItem(chan_ix, 0, new QTableWidgetItem(QString::fromStdString(dev_cfg->Channels[chan_ix].Label)));
 			chan_table->setCellWidget(chan_ix, 1, new QCheckBox());
 			QSpinBox* bipolar_spinbox = new QSpinBox();
+			bipolar_spinbox->setRange(0, GDS_GUSBAMP_CHANNELS_MAX);
 			chan_table->setCellWidget(chan_ix, 2, bipolar_spinbox);
-			QSpinBox *bandpass_spinbox = new QSpinBox();
-			chan_table->setCellWidget(chan_ix, 3, bandpass_spinbox);
-			QSpinBox *notch_spinbox = new QSpinBox();
-			chan_table->setCellWidget(chan_ix, 4, notch_spinbox);
-			chan_table->setItem(chan_ix, 5, new QTableWidgetItem(tr("?")));
+			chan_table->setItem(chan_ix, 3, new QTableWidgetItem(tr("None")));  // bandpass filter
+			chan_table->setItem(chan_ix, 4, new QTableWidgetItem(tr("None")));  // notch filter
+			chan_table->setItem(chan_ix, 5, new QTableWidgetItem(tr("?")));		// impedance value
 		}
 		
 		// Put all the widgets together on a layout.
-		// |name     samplerate  |
-		// |switches grounds/refs|
-		// |channels             |
-		// switches = [shortcut; counter; trigger]
-		// grounds/refs = [[groundA groundB groundC groundD]; [refA refB refC refD]]
+		// page_widget > 
+		//		dev_layout >
+		//			sw_gr_ref:
+		//				| status:status_group [enabled; master]
+		//				| switches:switches_group [shortcut; counter; trigger]
+		//				| gr_ref:ground_group,ref_group [[groundA groundB groundC groundD]; [refA refB refC refD]]
+		//			chan_table
 		QVBoxLayout *dev_layout = new QVBoxLayout;
 
-		QHBoxLayout *top_info_layout = new QHBoxLayout;
-		top_info_layout->addWidget(name_label);
-		top_info_layout->addWidget(samplerate_label);
-		top_info_layout->addWidget(samplerate_box);
-		dev_layout->addLayout(top_info_layout);
-		
 		QHBoxLayout *sw_gr_ref_layout = new QHBoxLayout;
+
+		QVBoxLayout *status_layout = new QVBoxLayout;
+		status_layout->addWidget(enabled_box);
+		status_layout->addWidget(master_box);
+		QGroupBox *status_group = new QGroupBox(tr("Status"));
+		status_group->setLayout(status_layout);
+		sw_gr_ref_layout->addWidget(status_group);
 
 		QVBoxLayout *switches_layout = new QVBoxLayout;
 		switches_layout->addWidget(shortcut_box);
@@ -127,112 +111,40 @@ void GUSBDlg::create_widgets()
 		// Channels widget
 		dev_layout->addWidget(chan_table);
 
-		// Device done. Add to parent layout.
-		ui->devices_layout->addLayout(dev_layout, (int)cfg_ix, 0);
+		// Device done. Add to widget, insert as tab.
+		QWidget *page_widget = new QWidget();
+		page_widget->setLayout(dev_layout);
+
+		ui->devices_tabWidget->addTab(page_widget, QString::fromStdString(dev_cfg->Serial));
 	}
 }
-
-
-void GUSBDlg::update_filters()
-{
-	// Update ui with config contents
-	size_t bandpassFiltersCount;
-	size_t notchFiltersCount;
-
-	for (size_t cfg_ix = 0; cfg_ix < m_configs.size(); cfg_ix++)
-	{
-		GDS_GUSBAMP_CONFIGURATION* dev_cfg = (GDS_GUSBAMP_CONFIGURATION*)m_configs[cfg_ix].Configuration;
-
-		QVBoxLayout *dev_layout = (QVBoxLayout*)ui->devices_layout->itemAtPosition((int)cfg_ix, 0)->layout();
-		
-		char(*device_name)[DEVICE_NAME_LENGTH_MAX] = new char[1][DEVICE_NAME_LENGTH_MAX];
-		std::strcpy(device_name[0], m_configs[cfg_ix].DeviceInfo.Name);
-		if (cfg_ix == 0)
-		{
-			QHBoxLayout *top_info_layout = (QHBoxLayout*)dev_layout->itemAt(0)->layout();
-			QComboBox *samplerate_box = (QComboBox*)top_info_layout->itemAt(2)->widget();
-
-			// Use GDS_GUSBAMP_GetBandpassFilters
-			GDS_RESULT res = GDS_GUSBAMP_GetBandpassFilters(*m_pHandle, device_name, NULL, &bandpassFiltersCount);
-			std::vector<GDS_FILTER_INFO> bandpassFilters(bandpassFiltersCount);
-			res = GDS_GUSBAMP_GetBandpassFilters(*m_pHandle, device_name, bandpassFilters.data(), &bandpassFiltersCount);
-
-			ui->bandpass_comboBox->clear();
-			for (size_t bp_ix = 0; bp_ix < bandpassFiltersCount; bp_ix++)
-			{
-				ui->bandpass_comboBox->addItem(QString("%1 - %2").arg(
-					QString::number(bandpassFilters[bp_ix].LowerCutoffFrequency),
-					QString::number(bandpassFilters[bp_ix].UpperCutoffFrequency)));
-			}
-			// Disable items that don't work with currently selected frequency.
-			QStandardItemModel* bandpass_model = qobject_cast<QStandardItemModel*>(ui->bandpass_comboBox->model());
-			for (size_t bp_ix = 0; bp_ix < bandpassFiltersCount; bp_ix++)
-			{
-				QStandardItem* bandpass_item = bandpass_model->item((int)bp_ix);
-				bandpass_item->setFlags(bandpassFilters[bp_ix].SamplingRate == gUSBamp_sample_rates[samplerate_box->currentIndex()] ?
-					bandpass_item->flags() | Qt::ItemIsEnabled : bandpass_item->flags() & ~Qt::ItemIsEnabled);
-			}
-
-			// Use GDS_GUSBAMP_GetNotchFilters
-			res = GDS_GUSBAMP_GetNotchFilters(*m_pHandle, device_name, NULL, &notchFiltersCount);
-			std::vector<GDS_FILTER_INFO> notchFilters(notchFiltersCount);
-			res = GDS_GUSBAMP_GetNotchFilters(*m_pHandle, device_name, notchFilters.data(), &notchFiltersCount);
-			ui->notch_comboBox->clear();
-			for (size_t notch_ix = 0; notch_ix < notchFiltersCount; notch_ix++)
-			{
-				ui->notch_comboBox->addItem(QString("%1 - %2").arg(
-					QString::number(notchFilters[notch_ix].LowerCutoffFrequency),
-					QString::number(notchFilters[notch_ix].UpperCutoffFrequency)));
-			}
-			QStandardItemModel* notch_model = qobject_cast<QStandardItemModel*>(ui->notch_comboBox->model());
-			for (size_t notch_ix = 0; notch_ix < notchFiltersCount; notch_ix++)
-			{
-				QStandardItem* notch_item = notch_model->item((int)notch_ix);
-				notch_item->setFlags(notchFilters[notch_ix].SamplingRate == gUSBamp_sample_rates[samplerate_box->currentIndex()] ?
-					notch_item->flags() | Qt::ItemIsEnabled : notch_item->flags() & ~Qt::ItemIsEnabled);
-			}
-		}
-		delete[] device_name;
-		device_name = NULL;
-
-		// Update Channels ranges
-		QTableWidget *chan_table = (QTableWidget*)dev_layout->itemAt(2)->widget();
-		for (int chan_ix = 0; chan_ix < GDS_GUSBAMP_CHANNELS_MAX; chan_ix++)
-		{
-			QSpinBox* chan_bandpass = (QSpinBox*)chan_table->cellWidget(chan_ix, 3);
-			chan_bandpass->setRange(-1, (int)bandpassFiltersCount - 1);
-			chan_bandpass->setValue(dev_cfg->Channels[chan_ix].BandpassFilterIndex);  // TODO: Set first enabled value
-			QSpinBox* chan_notch = (QSpinBox*)chan_table->cellWidget(chan_ix, 4);
-			chan_notch->setRange(-1, (int)notchFiltersCount - 1);
-			chan_notch->setValue(dev_cfg->Channels[chan_ix].NotchFilterIndex);  // TODO: Set first enabled value.
-		}
-	}
-}
-
 
 void GUSBDlg::update_ui()
 {
-	// Update ui with config contents
-	for (size_t cfg_ix = 0; cfg_ix < m_configs.size(); cfg_ix++)
-	{
-		GDS_GUSBAMP_CONFIGURATION* dev_cfg = (GDS_GUSBAMP_CONFIGURATION*)m_configs[cfg_ix].Configuration;
+	int dev_ix = 0;
+	for (auto dev_cfg = m_sys_config->Devices.begin(); dev_cfg != m_sys_config->Devices.end(); dev_cfg++, dev_ix++) {
+		QWidget *dev_page = ui->devices_tabWidget->widget(dev_ix);
+		QVBoxLayout *dev_layout = (QVBoxLayout*)dev_page->layout();
 
-		QVBoxLayout *dev_layout = (QVBoxLayout*)ui->devices_layout->itemAtPosition((int)cfg_ix, 0)->layout();
-		QHBoxLayout *top_info_layout = (QHBoxLayout*)dev_layout->itemAt(0)->layout();
-		QComboBox *samplerate_box = (QComboBox*)top_info_layout->itemAt(2)->widget();
-		samplerate_box->setCurrentIndex(std::find(gUSBamp_sample_rates.begin(), gUSBamp_sample_rates.end(), dev_cfg->SampleRate) - gUSBamp_sample_rates.begin());
+		QHBoxLayout *sw_gr_ref_layout = (QHBoxLayout*)dev_layout->itemAt(0)->layout();
 
-		QHBoxLayout *sw_gr_ref_layout = (QHBoxLayout*)dev_layout->itemAt(1)->layout();
+		QGroupBox *status_group = (QGroupBox*)sw_gr_ref_layout->itemAt(0)->widget();
+		QCheckBox *enabled_box = (QCheckBox*)status_group->layout()->itemAt(0)->widget();
+		enabled_box->setChecked(dev_cfg->DeviceEnabled);
+		QCheckBox *master_box = (QCheckBox*)status_group->layout()->itemAt(1)->widget();
+		master_box->setChecked(dev_cfg->IsMaster);
 		
-		QGroupBox *switches_group = (QGroupBox*)sw_gr_ref_layout->itemAt(0)->widget();
+		QGroupBox *switches_group = (QGroupBox*)sw_gr_ref_layout->itemAt(1)->widget();
 		QCheckBox *shortcut_box = (QCheckBox*)switches_group->layout()->itemAt(0)->widget();
 		shortcut_box->setChecked(dev_cfg->ShortCutEnabled);
+
 		QCheckBox *counter_box = (QCheckBox*)switches_group->layout()->itemAt(1)->widget();
 		counter_box->setChecked(dev_cfg->CounterEnabled);
+
 		QCheckBox *trigger_box = (QCheckBox*)switches_group->layout()->itemAt(2)->widget();
 		trigger_box->setChecked(dev_cfg->TriggerEnabled);
 
-		QVBoxLayout *gr_ref_layout = (QVBoxLayout*)sw_gr_ref_layout->itemAt(1)->layout();
+		QVBoxLayout *gr_ref_layout = (QVBoxLayout*)sw_gr_ref_layout->itemAt(2)->layout();
 		QGroupBox *ground_group = (QGroupBox*)gr_ref_layout->itemAt(0)->widget();
 		QHBoxLayout *gr_layout = (QHBoxLayout*)ground_group->layout();
 		QGroupBox *ref_group = (QGroupBox*)gr_ref_layout->itemAt(1)->widget();
@@ -245,336 +157,131 @@ void GUSBDlg::update_ui()
 			ref_box->setChecked(dev_cfg->CommonReference[grp_ix]);
 		}
 
-		QTableWidget *chan_table = (QTableWidget*)dev_layout->itemAt(2)->widget();
+		QTableWidget *chan_table = (QTableWidget*)dev_layout->itemAt(1)->widget();
 		for (int chan_ix = 0; chan_ix < GDS_GUSBAMP_CHANNELS_MAX; chan_ix++)
 		{
 			QCheckBox *chan_acquire = (QCheckBox*)chan_table->cellWidget(chan_ix, 1);
 			chan_acquire->setChecked(dev_cfg->Channels[chan_ix].Acquire);
+
 			QSpinBox* chan_bipolar = (QSpinBox*)chan_table->cellWidget(chan_ix, 2);
-			chan_bipolar->setRange(0, GDS_GUSBAMP_CHANNELS_MAX);
 			chan_bipolar->setValue(dev_cfg->Channels[chan_ix].BipolarChannel);
 		}
-
-		update_filters();
 	}
+
+	// Update samplerate, number of scans, driver
+	ui->driver_value->setText(QString::number(m_sys_config->DriverVersion));
+	int pos = std::distance(gUSBamp_sample_rates.begin(), std::find(gUSBamp_sample_rates.begin(), gUSBamp_sample_rates.end(), m_sys_config->SampleRate));
+	ui->numScans_spinBox->setValue(gUSBamp_buffer_sizes[pos]);
+	ui->sampleRate_combo->setCurrentIndex(pos);  // Triggers handle_sampleRateChange -> calls update_filters()
 }
 
-
-void GUSBDlg::accept()
+void GUSBDlg::update_filters()
 {
-	m_pChannel_labels->clear();
-	for (size_t cfg_ix = 0; cfg_ix < m_configs.size(); cfg_ix++)
+	int srate_ix = ui->sampleRate_combo->currentIndex();
+	uint32_t current_srate = gUSBamp_sample_rates[srate_ix];
+
+	std::vector<int> bp_filt_id;
+	bp_filt_id.push_back(-1);
+	ui->bandpass_comboBox->clear();
+	ui->bandpass_comboBox->addItem("None");
+	int filt_ix = 0;
+	for (auto filt_cfg = m_sys_config->available_bandpass_filters.begin(); filt_cfg != m_sys_config->available_bandpass_filters.end(); filt_cfg++, filt_ix++)
 	{
-		GDS_GUSBAMP_CONFIGURATION* dev_cfg = (GDS_GUSBAMP_CONFIGURATION*)m_configs[cfg_ix].Configuration;
-
-		QVBoxLayout *dev_layout = (QVBoxLayout*)ui->devices_layout->itemAtPosition((int)cfg_ix, 0)->layout();
-		QHBoxLayout *top_info_layout = (QHBoxLayout*)dev_layout->itemAt(0)->layout();
-		QComboBox *samplerate_box = (QComboBox*)top_info_layout->itemAt(2)->widget();
-		dev_cfg->SampleRate = gUSBamp_sample_rates[samplerate_box->currentIndex()];
-
-		QHBoxLayout *sw_gr_ref_layout = (QHBoxLayout*)dev_layout->itemAt(1)->layout();
-
-		QGroupBox *switches_group = (QGroupBox*)sw_gr_ref_layout->itemAt(0)->widget();
-		QCheckBox *shortcut_box = (QCheckBox*)switches_group->layout()->itemAt(0)->widget();
-		dev_cfg->ShortCutEnabled = shortcut_box->isChecked();
-		QCheckBox *counter_box = (QCheckBox*)switches_group->layout()->itemAt(1)->widget();
-		dev_cfg->CounterEnabled = counter_box->isChecked();
-		QCheckBox *trigger_box = (QCheckBox*)switches_group->layout()->itemAt(2)->widget();
-		dev_cfg->TriggerEnabled = trigger_box->isChecked();
-
-		QVBoxLayout *gr_ref_layout = (QVBoxLayout*)sw_gr_ref_layout->itemAt(1)->layout();
-		QGroupBox *ground_group = (QGroupBox*)gr_ref_layout->itemAt(0)->widget();
-		QHBoxLayout *gr_layout = (QHBoxLayout*)ground_group->layout();
-		QGroupBox *ref_group = (QGroupBox*)gr_ref_layout->itemAt(1)->widget();
-		QHBoxLayout *ref_layout = (QHBoxLayout*)ref_group->layout();
-		for (int grp_ix = 0; grp_ix < GDS_GUSBAMP_GROUPS_MAX; grp_ix++)
+		if ((uint32_t)filt_cfg->SamplingRate == current_srate)
 		{
-			QCheckBox *ground_box = (QCheckBox*)gr_layout->itemAt(grp_ix)->widget();
-			dev_cfg->CommonGround[grp_ix] = ground_box->isChecked();
-			QCheckBox *ref_box = (QCheckBox*)ref_layout->itemAt(grp_ix)->widget();
-			dev_cfg->CommonReference[grp_ix] = ref_box->isChecked();
+			bp_filt_id.push_back(filt_ix);
+			QString filt_type = filt_cfg->TypeId == GDS_FILTER_TYPE_CHEBYSHEV ? "Cheby" : "Butter";
+			ui->bandpass_comboBox->addItem(QString("%1:%2,%3,%4-%5").arg(
+				QString::number(filt_ix),
+				filt_type,
+				QString::number(filt_cfg->Order),
+				QString::number(filt_cfg->LowerCutoffFrequency),
+				QString::number(filt_cfg->UpperCutoffFrequency)));
 		}
+	}
 
-		QTableWidget *chan_table = (QTableWidget*)dev_layout->itemAt(2)->widget();
+	std::vector<int> notch_filt_id;
+	notch_filt_id.push_back(-1);
+	ui->notch_comboBox->clear();
+	ui->notch_comboBox->addItem("None");
+	filt_ix = 0;
+	for (auto filt_cfg = m_sys_config->available_notch_filters.begin(); filt_cfg != m_sys_config->available_notch_filters.end(); filt_cfg++, filt_ix++)
+	{
+		if ((uint32_t)filt_cfg->SamplingRate == current_srate)
+		{
+			notch_filt_id.push_back(filt_ix);
+			QString filt_type = filt_cfg->TypeId == GDS_FILTER_TYPE_CHEBYSHEV ? "Cheby" : "Butter";
+			ui->notch_comboBox->addItem(QString("%1:%2,%3,%4-%5").arg(
+				QString::number(filt_ix),
+				filt_type,
+				QString::number(filt_cfg->Order),
+				QString::number(filt_cfg->LowerCutoffFrequency),
+				QString::number(filt_cfg->UpperCutoffFrequency)));
+		}
+	}
+
+	// Update ui with config contents
+	int dev_ix = 0;
+	for (auto dev_cfg = m_sys_config->Devices.begin(); dev_cfg != m_sys_config->Devices.end(); dev_cfg++, dev_ix++) {
+		QWidget *dev_page = ui->devices_tabWidget->widget(dev_ix);
+		QVBoxLayout *dev_layout = (QVBoxLayout*)dev_page->layout();
+		QTableWidget *chan_table = (QTableWidget*)dev_layout->itemAt(1)->widget();
 		for (int chan_ix = 0; chan_ix < GDS_GUSBAMP_CHANNELS_MAX; chan_ix++)
 		{
-			QTableWidgetItem *chan_label = chan_table->item(chan_ix, 0);
-			m_pChannel_labels->push_back(chan_label->text().toStdString());
-			QCheckBox *chan_acquire = (QCheckBox*)chan_table->cellWidget(chan_ix, 1);
-			dev_cfg->Channels[chan_ix].Acquire = chan_acquire->isChecked();
-			QSpinBox* chan_bipolar = (QSpinBox*)chan_table->cellWidget(chan_ix, 2);
-			dev_cfg->Channels[chan_ix].BipolarChannel = chan_bipolar->value();
-			QSpinBox* chan_bandpass = (QSpinBox*)chan_table->cellWidget(chan_ix, 3);
-			dev_cfg->Channels[chan_ix].BandpassFilterIndex = chan_bandpass->value();
-			QSpinBox* chan_notch = (QSpinBox*)chan_table->cellWidget(chan_ix, 4);
-			dev_cfg->Channels[chan_ix].NotchFilterIndex = chan_notch->value();
+			// Where in list of bp_filt_id is this channels filter index, if anywhere?
+			std::vector<int>::iterator bp_it = std::find(bp_filt_id.begin(), bp_filt_id.end(), dev_cfg->Channels[chan_ix].BandpassFilterIndex);
+			int bp_ix = bp_it != bp_filt_id.end() ? std::distance(bp_filt_id.begin(), bp_it) : 0;  // Default to 0th (None)
+			chan_table->item(chan_ix, 3)->setText(ui->bandpass_comboBox->itemText(bp_ix));
+
+			std::vector<int>::iterator notch_it = std::find(notch_filt_id.begin(), notch_filt_id.end(), dev_cfg->Channels[chan_ix].NotchFilterIndex);
+			int notch_ix = notch_it != notch_filt_id.end() ? std::distance(notch_filt_id.begin(), notch_it) : 0;
+			chan_table->item(chan_ix, 4)->setText(ui->notch_comboBox->itemText(notch_ix));
 		}
 	}
-
-	QDialog::accept();
 }
-
-
-void GUSBDlg::on_loadCfgButton_clicked()
-{
-	QString sel = QFileDialog::getOpenFileName(this,
-		"Load Configuration File",
-		"",//QDir::currentPath()
-		"Configuration Files (*.cfg)");
-	if (!sel.isEmpty())
-	{
-		load_config(sel);
-	}
-}
-
-
-void GUSBDlg::load_config(const QString filename)
-{
-	QFile xmlFile(filename);
-	if (!xmlFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-		qDebug() << "Could not load XML from file " << filename;
-		return;
-	}
-	QXmlStreamReader xmlReader(&xmlFile);
-	size_t device_ix = -1;
-	int channel_ix = -1;
-	std::vector<std::string> gr_blocks = { "A", "B", "C", "D" };
-	bool label_is_channel = false;
-
-	// Convenience references to GUI items that change depending on which device, ground or ref, etc.
-	QVBoxLayout *dev_layout;
-	QGroupBox *switches_group;
-	QVBoxLayout *gr_ref_layout;
-	QHBoxLayout *gr_or_ref_layout;
-	QTableWidget *chan_table;
-	
-
-	while (!xmlReader.atEnd() && !xmlReader.hasError()) {
-		xmlReader.readNext();
-		if (xmlReader.isStartElement())
-		{
-			QStringRef elname = xmlReader.name();
-			if (elname == "device")
-			{
-				device_ix++;
-				label_is_channel = false;
-				dev_layout = (QVBoxLayout*)ui->devices_layout->itemAtPosition((int)device_ix, 0)->layout();
-				QHBoxLayout *sw_gr_ref_layout = (QHBoxLayout*)dev_layout->itemAt(1)->layout();
-				switches_group = (QGroupBox*)sw_gr_ref_layout->itemAt(0)->widget();
-				gr_ref_layout = (QVBoxLayout*)sw_gr_ref_layout->itemAt(1)->layout();
-				chan_table = (QTableWidget*)dev_layout->itemAt(2)->widget();
-			}
-			else if (elname == "grounds")
-			{
-				QGroupBox *ground_group = (QGroupBox*)gr_ref_layout->itemAt(0)->widget();
-				gr_or_ref_layout = (QHBoxLayout*)ground_group->layout();
-			}
-			else if (elname == "references")
-			{
-				QGroupBox *ref_group = (QGroupBox*)gr_ref_layout->itemAt(1)->widget();
-				gr_or_ref_layout = (QHBoxLayout*)ref_group->layout();
-			}
-			else if (elname == "SampleRate" && device_ix == 0)
-			{
-				QHBoxLayout *top_info_layout = (QHBoxLayout*)dev_layout->itemAt(0)->layout();
-				QComboBox *samplerate_box = (QComboBox*)top_info_layout->itemAt(2)->widget();
-				samplerate_box->setCurrentIndex(std::find(gUSBamp_sample_rates.begin(), gUSBamp_sample_rates.end(),
-					xmlReader.readElementText().toInt()) - gUSBamp_sample_rates.begin());
-			}
-			else if (elname == "ShortCutEnabled")
-			{
-				QCheckBox *shortcut_box = (QCheckBox*)switches_group->layout()->itemAt(0)->widget();
-				shortcut_box->setChecked(xmlReader.readElementText().compare("true", Qt::CaseInsensitive) == 0);
-			}
-			else if (elname == "CounterEnabled")
-			{
-				QCheckBox *counter_box = (QCheckBox*)switches_group->layout()->itemAt(1)->widget();
-				counter_box->setChecked(xmlReader.readElementText().compare("true", Qt::CaseInsensitive) == 0);
-			}
-			else if (elname == "TriggerEnabled")
-			{
-				QCheckBox *trigger_box = (QCheckBox*)switches_group->layout()->itemAt(2)->widget();
-				trigger_box->setChecked(xmlReader.readElementText().compare("true", Qt::CaseInsensitive) == 0);
-			}
-			else if (std::find(gr_blocks.begin(), gr_blocks.end(), elname.toString().toStdString()) != gr_blocks.end())  // A, B, C, D
-			{
-				ptrdiff_t block_ix = std::distance(gr_blocks.begin(), std::find(gr_blocks.begin(), gr_blocks.end(), elname.toString().toStdString()));
-				QCheckBox *check_box = (QCheckBox*)gr_or_ref_layout->itemAt(block_ix)->widget();
-				check_box->setChecked(xmlReader.readElementText().compare("true", Qt::CaseInsensitive) == 0);
-			}
-			else if (elname == "channels")
-				channel_ix = -1;
-			else if (elname == "channel")
-			{
-				channel_ix++;
-				label_is_channel = true;
-			}
-			else if (elname == "Label" && label_is_channel)
-			{
-				QTableWidgetItem *chan_label = chan_table->item(channel_ix, 0);
-				chan_label->setText(xmlReader.readElementText());
-			}
-			else if (elname == "Acquire")
-			{
-				QCheckBox *chan_acquire = (QCheckBox*)chan_table->cellWidget(channel_ix, 1);
-				chan_acquire->setChecked(xmlReader.readElementText().compare("true", Qt::CaseInsensitive) == 0);
-			}
-			else if (elname == "BipolarChannel")
-			{
-				QSpinBox* chan_bipolar = (QSpinBox*)chan_table->cellWidget(channel_ix, 2);
-				chan_bipolar->setValue(xmlReader.readElementText().toInt());
-			}
-			else if (elname == "BandpassFilterIndex")
-			{
-				QSpinBox* chan_bandpass = (QSpinBox*)chan_table->cellWidget(channel_ix, 3);
-				chan_bandpass->setValue(xmlReader.readElementText().toInt());
-			}
-			else if (elname == "NotchFilterIndex")
-			{
-				QSpinBox* chan_notch = (QSpinBox*)chan_table->cellWidget(channel_ix, 4);
-				chan_notch->setValue(xmlReader.readElementText().toInt());
-			}
-		}
-	}
-	if (xmlReader.hasError()) {
-		qDebug() << "Config file parse error "
-			<< xmlReader.error()
-			<< ": "
-			<< xmlReader.errorString();
-	}
-	xmlReader.clear();
-	xmlFile.close();
-}
-
-
-void GUSBDlg::on_saveCfgButton_clicked()
-{
-	QString sel = QFileDialog::getSaveFileName(this,
-		"Save Configuration File",
-		QDir::currentPath(),
-		"Configuration Files (*.cfg)");
-	if (!sel.isEmpty())
-	{
-		// TODO: Confirm overwrite
-		save_config(sel);
-	}
-}
-
-
-void GUSBDlg::save_config(QString filename)
-{
-	try {
-		QFile file(filename);
-		file.open(QIODevice::WriteOnly);
-		QXmlStreamWriter stream(&file);
-		stream.setAutoFormatting(true);
-		stream.writeStartDocument();
-		// Save GUI state of device + channel config.
-		stream.writeStartElement("devices");
-		for (size_t cfg_ix = 0; cfg_ix < m_configs.size(); cfg_ix++)
-		{
-			stream.writeStartElement("device");
-			QVBoxLayout *dev_layout = (QVBoxLayout*)ui->devices_layout->itemAtPosition((int)cfg_ix, 0)->layout();
-
-			QHBoxLayout *top_info_layout = (QHBoxLayout*)dev_layout->itemAt(0)->layout();
-			QLabel *dev_label = (QLabel*)top_info_layout->itemAt(0)->widget();
-			stream.writeTextElement("Label", dev_label->text());
-			QComboBox *samplerate_box = (QComboBox*)top_info_layout->itemAt(2)->widget();
-			stream.writeTextElement("SampleRate", QString::number(gUSBamp_sample_rates[samplerate_box->currentIndex()]));
-
-			QHBoxLayout *sw_gr_ref_layout = (QHBoxLayout*)dev_layout->itemAt(1)->layout();
-
-			QGroupBox *switches_group = (QGroupBox*)sw_gr_ref_layout->itemAt(0)->widget();
-			
-			QCheckBox *shortcut_box = (QCheckBox*)switches_group->layout()->itemAt(0)->widget();
-			stream.writeTextElement("ShortCutEnabled", shortcut_box->isChecked() ? "true" : "false");
-			
-			QCheckBox *counter_box = (QCheckBox*)switches_group->layout()->itemAt(1)->widget();
-			stream.writeTextElement("CounterEnabled", counter_box->isChecked() ? "true" : "false");
-			
-			QCheckBox *trigger_box = (QCheckBox*)switches_group->layout()->itemAt(2)->widget();
-			stream.writeTextElement("TriggerEnabled", trigger_box->isChecked() ? "true" : "false");
-
-			QStringList gr_blocks;
-			gr_blocks << "A" << "B" << "C" << "D";
-
-			stream.writeStartElement("grounds");
-			QVBoxLayout *gr_ref_layout = (QVBoxLayout*)sw_gr_ref_layout->itemAt(1)->layout();
-			QGroupBox *ground_group = (QGroupBox*)gr_ref_layout->itemAt(0)->widget();
-			QHBoxLayout *gr_layout = (QHBoxLayout*)ground_group->layout();
-			for (int grp_ix = 0; grp_ix < GDS_GUSBAMP_GROUPS_MAX; grp_ix++)
-			{
-				QCheckBox *ground_box = (QCheckBox*)gr_layout->itemAt(grp_ix)->widget();
-				stream.writeTextElement(gr_blocks.at(grp_ix), ground_box->isChecked() ? "true" : "false");
-			}
-			stream.writeEndElement(); // grounds
-
-			stream.writeStartElement("references");
-			QGroupBox *ref_group = (QGroupBox*)gr_ref_layout->itemAt(1)->widget();
-			QHBoxLayout *ref_layout = (QHBoxLayout*)ref_group->layout();
-			for (int grp_ix = 0; grp_ix < GDS_GUSBAMP_GROUPS_MAX; grp_ix++)
-			{
-				QCheckBox *ref_box = (QCheckBox*)ref_layout->itemAt(grp_ix)->widget();
-				stream.writeTextElement(gr_blocks.at(grp_ix), ref_box->isChecked() ? "true" : "false");
-			}
-			stream.writeEndElement(); // references
-
-			stream.writeStartElement("channels");
-			QTableWidget *chan_table = (QTableWidget*)dev_layout->itemAt(2)->widget();
-			for (int chan_ix = 0; chan_ix < GDS_GUSBAMP_CHANNELS_MAX; chan_ix++)
-			{
-				stream.writeStartElement("channel");
-				QTableWidgetItem *chan_label = chan_table->item(chan_ix, 0);
-				stream.writeTextElement("Label", chan_label->text());
-				QCheckBox *chan_acquire = (QCheckBox*)chan_table->cellWidget(chan_ix, 1);
-				stream.writeTextElement("Acquire", chan_acquire->isChecked() ? "true" : "false");
-				QSpinBox* chan_bipolar = (QSpinBox*)chan_table->cellWidget(chan_ix, 2);
-				stream.writeTextElement("BipolarChannel", QString::number(chan_bipolar->value()));
-				QSpinBox* chan_bandpass = (QSpinBox*)chan_table->cellWidget(chan_ix, 3);
-				stream.writeTextElement("BandpassFilterIndex", QString::number(chan_bandpass->value()));
-				QSpinBox* chan_notch = (QSpinBox*)chan_table->cellWidget(chan_ix, 4);
-				stream.writeTextElement("NotchFilterIndex", QString::number(chan_notch->value()));
-				stream.writeEndElement(); // channel
-			}
-			stream.writeEndElement(); // channels
-			stream.writeEndElement(); // device
-		}
-		stream.writeEndElement(); // devices
-		stream.writeEndDocument();
-		file.close();
-	}
-	catch (std::exception &e) {
-		qDebug() << "Problem saving to config file: " << e.what();
-	}
-}
-
 
 void GUSBDlg::handle_sampleRateChange(int index)
 {
-	for (size_t cfg_ix = 1; cfg_ix < m_configs.size(); cfg_ix++)
-	{
-		QVBoxLayout *dev_layout = (QVBoxLayout*)ui->devices_layout->itemAtPosition((int)cfg_ix, 0)->layout();
-		QHBoxLayout *top_info_layout = (QHBoxLayout*)dev_layout->itemAt(0)->layout();
-		QComboBox *samplerate_box = (QComboBox*)top_info_layout->itemAt(2)->widget();
-		samplerate_box->setCurrentIndex(index);
-	}
+	ui->numScans_spinBox->setValue(gUSBamp_buffer_sizes[index]);
 	update_filters();
 }
 
-
 void GUSBDlg::on_bandpass_pushButton_clicked()
 {
-	apply_filter_to_enabled_chans(3, ui->bandpass_comboBox->currentIndex());
+	apply_filter_to_enabled_chans(3, ui->bandpass_comboBox->currentText());
 }
-
 
 void GUSBDlg::on_notch_pushButton_clicked()
 {
-	apply_filter_to_enabled_chans(4, ui->notch_comboBox->currentIndex());
+	apply_filter_to_enabled_chans(4, ui->notch_comboBox->currentText());
+}
+
+void GUSBDlg::apply_filter_to_enabled_chans(int widget_ix, QString value)
+{
+	int dev_ix = 0;
+	for (auto dev_cfg = m_sys_config->Devices.begin(); dev_cfg != m_sys_config->Devices.end(); dev_cfg++, dev_ix++) {
+		QWidget *dev_page = ui->devices_tabWidget->widget(dev_ix);
+		QVBoxLayout *dev_layout = (QVBoxLayout*)dev_page->layout();
+
+		QTableWidget *chan_table = (QTableWidget*)dev_layout->itemAt(1)->widget();
+		for (int chan_ix = 0; chan_ix < GDS_GUSBAMP_CHANNELS_MAX; chan_ix++)
+		{
+			QCheckBox *chan_acquire = (QCheckBox*)chan_table->cellWidget(chan_ix, 1);
+			if (chan_acquire->isChecked())
+			{
+				chan_table->item(chan_ix, widget_ix)->setText(value);
+			}
+		}
+	}
 }
 
 void GUSBDlg::update_impedance_table() 
 {
+	// Open device with name in position 0.
+	// BOOL status = GT_SetMode(HANDLE hDevice, M_IMPEDANCE);
+
+	/*
+	// Must open each device then close it upon completion.
 	for (size_t cfg_ix = 0; cfg_ix < m_configs.size(); cfg_ix++)
 	{
 		QVBoxLayout *dev_layout = (QVBoxLayout*)ui->devices_layout->itemAtPosition((int)cfg_ix, 0)->layout();
@@ -587,6 +294,7 @@ void GUSBDlg::update_impedance_table()
 			}
 		}
 	}
+	*/
 }
 
 void GUSBDlg::on_impedance_pushButton_clicked() 
@@ -594,6 +302,7 @@ void GUSBDlg::on_impedance_pushButton_clicked()
 	ui->impedance_pushButton->setEnabled(false);
 	qApp->processEvents();
 	m_pChannel_impedances->clear();
+	/*
 	for (size_t cfg_ix = 0; cfg_ix < m_configs.size(); cfg_ix++)
 	{
 		GDS_GUSBAMP_CONFIGURATION* dev_cfg = (GDS_GUSBAMP_CONFIGURATION*)m_configs[cfg_ix].Configuration;
@@ -617,26 +326,74 @@ void GUSBDlg::on_impedance_pushButton_clicked()
 		delete[] device_name;
 		device_name = NULL;
 	}
+	*/
 	ui->impedance_pushButton->setEnabled(true);
 	// update_impedance_table();
 }
 
-void GUSBDlg::apply_filter_to_enabled_chans(int widget_ix, int value)
+void GUSBDlg::accept()
 {
-	for (size_t cfg_ix = 0; cfg_ix < m_configs.size(); cfg_ix++)
-	{
-		GDS_GUSBAMP_CONFIGURATION* dev_cfg = (GDS_GUSBAMP_CONFIGURATION*)m_configs[cfg_ix].Configuration;
+	m_sys_config->SampleRate = ui->sampleRate_combo->currentText().toULong();
+	m_sys_config->NumberOfScans = ui->numScans_spinBox->value();
+	int dev_ix = 0;
+	bool master_set = false;
+	for (auto dev_cfg = m_sys_config->Devices.begin(); dev_cfg != m_sys_config->Devices.end(); dev_cfg++, dev_ix++) {
+		QWidget *dev_page = ui->devices_tabWidget->widget(dev_ix);
+		QVBoxLayout *dev_layout = (QVBoxLayout*)dev_page->layout();
 
-		QVBoxLayout *dev_layout = (QVBoxLayout*)ui->devices_layout->itemAtPosition((int)cfg_ix, 0)->layout();
-		QTableWidget *chan_table = (QTableWidget*)dev_layout->itemAt(2)->widget();
+		QHBoxLayout *sw_gr_ref_layout = (QHBoxLayout*)dev_layout->itemAt(0)->layout();
+
+		QGroupBox *status_group = (QGroupBox*)sw_gr_ref_layout->itemAt(0)->widget();
+		QCheckBox *enabled_box = (QCheckBox*)status_group->layout()->itemAt(0)->widget();
+		dev_cfg->DeviceEnabled = enabled_box->isChecked();
+		
+		QCheckBox *master_box = (QCheckBox*)status_group->layout()->itemAt(1)->widget();
+		dev_cfg->IsMaster = master_box->isChecked() & !master_set;
+		master_set |= dev_cfg->IsMaster;
+
+		QGroupBox *switches_group = (QGroupBox*)sw_gr_ref_layout->itemAt(1)->widget();
+		QCheckBox *shortcut_box = (QCheckBox*)switches_group->layout()->itemAt(0)->widget();
+		dev_cfg->ShortCutEnabled = shortcut_box->isChecked();
+
+		QCheckBox *counter_box = (QCheckBox*)switches_group->layout()->itemAt(1)->widget();
+		dev_cfg->CounterEnabled = counter_box->isChecked();
+
+		QCheckBox *trigger_box = (QCheckBox*)switches_group->layout()->itemAt(2)->widget();
+		dev_cfg->TriggerEnabled = trigger_box->isChecked();
+
+		QVBoxLayout *gr_ref_layout = (QVBoxLayout*)sw_gr_ref_layout->itemAt(2)->layout();
+		QGroupBox *ground_group = (QGroupBox*)gr_ref_layout->itemAt(0)->widget();
+		QHBoxLayout *gr_layout = (QHBoxLayout*)ground_group->layout();
+		QGroupBox *ref_group = (QGroupBox*)gr_ref_layout->itemAt(1)->widget();
+		QHBoxLayout *ref_layout = (QHBoxLayout*)ref_group->layout();
+		for (int grp_ix = 0; grp_ix < GDS_GUSBAMP_GROUPS_MAX; grp_ix++)
+		{
+			QCheckBox *ground_box = (QCheckBox*)gr_layout->itemAt(grp_ix)->widget();
+			dev_cfg->CommonGround[grp_ix] = ground_box->isChecked();
+			QCheckBox *ref_box = (QCheckBox*)ref_layout->itemAt(grp_ix)->widget();
+			dev_cfg->CommonReference[grp_ix] = ref_box->isChecked();
+		}
+
+		QTableWidget *chan_table = (QTableWidget*)dev_layout->itemAt(1)->widget();
 		for (int chan_ix = 0; chan_ix < GDS_GUSBAMP_CHANNELS_MAX; chan_ix++)
 		{
+			dev_cfg->Channels[chan_ix].Label = chan_table->item(chan_ix, 0)->text().toStdString();
+
 			QCheckBox *chan_acquire = (QCheckBox*)chan_table->cellWidget(chan_ix, 1);
-			if (chan_acquire->isChecked())
-			{
-				QSpinBox* chan_spbox = (QSpinBox*)chan_table->cellWidget(chan_ix, widget_ix);
-				chan_spbox->setValue(value);
-			}
+			dev_cfg->Channels[chan_ix].Acquire = chan_acquire->isChecked();
+
+			QSpinBox* chan_bipolar = (QSpinBox*)chan_table->cellWidget(chan_ix, 2);
+			dev_cfg->Channels[chan_ix].BipolarChannel = chan_bipolar->value();
+
+			int32_t bp_ix, notch_ix;
+			bp_ix = chan_table->item(chan_ix, 3)->text().split(':').at(0).toLong();
+			dev_cfg->Channels[chan_ix].BandpassFilterIndex = bp_ix;
+			notch_ix = chan_table->item(chan_ix, 4)->text().split(':').at(0).toLong();
+			dev_cfg->Channels[chan_ix].NotchFilterIndex = notch_ix;
 		}
+
 	}
+	
+
+	QDialog::accept();
 }

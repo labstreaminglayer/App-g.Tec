@@ -6,23 +6,38 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>190</width>
-    <height>143</height>
+    <width>280</width>
+    <height>210</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>BestPracticesGUI Connector</string>
+   <string>g.USBamp Connector</string>
   </property>
   <widget class="QWidget" name="centralWidget">
    <layout class="QFormLayout" name="formLayout_2">
-    <item row="1" column="0">
-     <widget class="QLabel" name="nameLabel">
-      <property name="text">
-       <string>Name</string>
+    <item row="0" column="0">
+     <widget class="QListWidget" name="availableListWidget">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="MinimumExpanding" vsizetype="Expanding">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
+      <property name="dragDropMode">
+       <enum>QAbstractItemView::NoDragDrop</enum>
+      </property>
+      <property name="defaultDropAction">
+       <enum>Qt::IgnoreAction</enum>
+      </property>
+      <property name="selectionMode">
+       <enum>QAbstractItemView::NoSelection</enum>
+      </property>
+      <property name="selectionBehavior">
+       <enum>QAbstractItemView::SelectRows</enum>
       </property>
      </widget>
     </item>
-    <item row="3" column="0" colspan="2">
+    <item row="1" column="0" colspan="2">
      <widget class="QPushButton" name="linkButton">
       <property name="sizePolicy">
        <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
@@ -35,23 +50,6 @@
       </property>
      </widget>
     </item>
-    <item row="1" column="1">
-     <widget class="QLineEdit" name="nameField"/>
-    </item>
-    <item row="2" column="0">
-     <widget class="QLabel" name="deviceLabel">
-      <property name="text">
-       <string>Device parameter</string>
-      </property>
-     </widget>
-    </item>
-    <item row="2" column="1">
-     <widget class="QSpinBox" name="deviceField">
-      <property name="maximum">
-       <number>400</number>
-      </property>
-     </widget>
-    </item>
    </layout>
   </widget>
   <widget class="QMenuBar" name="menuBar">
@@ -59,7 +57,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>190</width>
+     <width>280</width>
      <height>21</height>
     </rect>
    </property>

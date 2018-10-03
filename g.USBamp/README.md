@@ -10,7 +10,7 @@ for how information on how to obtain Qt and instruct cmake to use it.
 
 ```bash
 mkdir build && cd build
-cmake .. -G "Visual Studio 14 2015 Win64" -DQt5_DIR=C:\Qt\5.10.0\msvc2015_64\lib\cmake\Qt5 -DBOOST_ROOT=C:\local\boost_1_65_1
+cmake .. -G "Visual Studio 14 2017 Win64" -DQt5_DIR=C:\Qt\5.11.2\msvc2017_64\lib\cmake\Qt5
 ```
 
 ### gUSBamp API
@@ -26,6 +26,7 @@ Using the deprecated API...
 The cmake build system will search for the gUSBampCAPI in C:\Program Files\gtec\gUSBampCAPI\API.
 This folder is expected to have gUSBamp.h, gUSBamp.dll, and gUSBamp.bin
 If your amp serial number is of the form UA-XXXX.XX.XX, you may need to replace your gUSBamp.dll file with a gUSBamp-for-2.0.dll file and rename to gUSBamp.dll.
+Note that this library is only 32-bit (x86) so only 32-bit projects are supported.
 
 #### Linux
 

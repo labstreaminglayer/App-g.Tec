@@ -2,6 +2,11 @@
 #define GUSBAMP_CONFIG_H
 #include <stdint.h>
 #include <cstddef>
+#include <map>
+
+// This defines g.NEEDaccess-like structures for use with the gUSBamp CAPI.
+// The goal is to unify maintenance of gUSBamp CAPI apps and gNEEDaccess apps.
+// We don't go so  far as to wrap gUSBamp CAPI functions. Maybe one day...
 
 // ========================================================================================
 // Constants
@@ -11,7 +16,8 @@
 #define GDS_GUSBAMP_ASYNC_DIGITAL_IO_CHANNELS_MAX 4
 #define GDS_GUSBAMP_DEVICE_INFORMATION_LENGTH_MAX 256
 #define CHAINED_DEVICES_MAX 4
-const std::vector<uint32_t> gUSBamp_sample_rates = { 32, 64, 128, 256, 512, 600, 1200, 2400, 4800, 9600, 19200, 38400 };
+const std::vector<uint32_t> gUSBamp_sample_rates = { 32, 64, 128, 256, 512, 600, 1200, 2400, 4800, 9600, 19200, 38400, 0 }; // 0 for irregular
+const std::vector<uint32_t> gUSBamp_buffer_sizes = {  1,  2,   4,   8,  16,  32,   64,  128,  256,  512,   512,   512, 1 };
 
 // ========================================================================================
 // Enumerations
@@ -81,6 +87,25 @@ typedef struct _GDS_GUSBAMP_SIGNAL_GENERATOR_CONFIGURATION
 
 } GDS_GUSBAMP_SIGNAL_GENERATOR_CONFIGURATION, *PGDS_GUSBAMP_SIGNAL_GENERATOR_CONFIGURATION;
 
+//! Describes the properties of a specific filter.
+typedef struct _GDS_FILTER_INFO
+{
+	//! The type of the filter.
+	GDS_FILTER_TYPE TypeId;
+
+	//! The order of the filter.
+	uint32_t Order;
+
+	//! The sampling rate that the filter is designed for in hertz.
+	double SamplingRate;
+
+	//! The lower cutoff frequency of the filter in hertz.
+	double LowerCutoffFrequency;
+
+	//! The upper cutoff frequency of the filter in hertz.
+	double UpperCutoffFrequency;
+} GDS_FILTER_INFO, *PGDS_FILTER_INFO;
+
 //! The configuration of a single channel.
 typedef struct _GDS_GUSBAMP_CHANNEL_CONFIGURATION
 {
@@ -106,38 +131,15 @@ typedef struct _GDS_GUSBAMP_CHANNEL_CONFIGURATION
 	A value of -1 indicates that no notch filter is used for the channel.
 	*/
 	int32_t NotchFilterIndex;
+
+	std::string Label;
 } GDS_GUSBAMP_CHANNEL_CONFIGURATION, *PGDS_GUSBAMP_CHANNEL_CONFIGURATION;
 
 //! The configuration of a g.USBamp device.
 typedef struct _GDS_GUSBAMP_CONFIGURATION
 {
 	bool DeviceEnabled = true;
-	//! The sample rate of the analog inputs in hertz.
-	/*!
-	Valid values are: 32, 64, 128, 256, 512, 600, 1200, 2400, 4800, 9600, 19200, 38400.
-	Eight-channel g.USBamp devices support the following sample rates only: 128, 256, 512.
-	*/
-	uint32_t SampleRate;
-
-	//! The number of scans to retrieve from the device at once, or zero to determine the recommended number of scans for the specified sampling rate automatically.
-	/*!
-	This value depends on the value of \ref SampleRate. The following table lists the recommended values of \ref NumberOfScans for all possible sample rates.
-
-	\li \c 1 for a sample rate of 32 Hz
-	\li \c 2 for a sample rate of 64 Hz
-	\li \c 4 for a sample rate of 128 Hz
-	\li \c 8 for a sample rate of 256 Hz
-	\li \c 16 for a sample rate of 512 Hz
-	\li \c 32 for a sample rate of 600 Hz
-	\li \c 64 for a sample rate of 1200 Hz
-	\li \c 128 for a sample rate of 2400 Hz
-	\li \c 256 for a sample rate of 4800 Hz
-	\li \c 512 for a sample rate of 9600 Hz
-	\li \c 512 for a sample rate of 19200 Hz
-	\li \c 512 for a sample rate of 38400 Hz
-	*/
-	size_t NumberOfScans;
-
+	
 	//! Indicates whether the short cut socket is enabled.
 	/*!
 	If short cut is enabled, a HIGH level on the SC input socket of the amplifier disconnects the electrodes from the amplifier input stage and holds the lastly measured values as long as the HIGH level is applied.
@@ -181,14 +183,66 @@ typedef struct _GDS_GUSBAMP_CONFIGURATION
 	The element at zero-based index <i>i</i> holds the configuration for the channel with one-based channel number <i>i + 1</i>.
 	*/
 	GDS_GUSBAMP_CHANNEL_CONFIGURATION Channels[GDS_GUSBAMP_CHANNELS_MAX];
+	size_t ActiveChannelCount;
+	std::vector<size_t> ActiveChannelId;  // Map from active channel index to physical channel id.
 
 	bool IsMaster = true;
+
+	GDS_GUSBAMP_SCALING Scaling;
+
+	std::string Serial;
+
+	void* Handle;
+
+	// dwSzBuffer must correspond to the value wBufferSize in GT_SetBufferSize().
+	// Furthermore HEADER_SIZE bytes precede the acquired data and have to be discarded.
+	// e.g. 16 channels sampled at 128 Hz, wBufferSize set to 8:
+	//     dwSzBuffer = 8 scans * 16 channels * sizeof(float) + HEADER_SIZE.
+	unsigned int BufferSize;
 
 } GDS_GUSBAMP_CONFIGURATION, *PGDS_GUSBAMP_CONFIGURATION;
 
 typedef struct _SYSTEM_CONFIGURATION
 {
-	GDS_GUSBAMP_CONFIGURATION Devices[CHAINED_DEVICES_MAX];
+	//! The sample rate of the analog inputs in hertz.
+	/*!
+	Valid values are: 32, 64, 128, 256, 512, 600, 1200, 2400, 4800, 9600, 19200, 38400.
+	Eight-channel g.USBamp devices support the following sample rates only: 128, 256, 512.
+	*/
+	uint32_t SampleRate = 256;
+
+	//! The number of scans to retrieve from the device at once, or zero to determine the recommended number of scans for the specified sampling rate automatically.
+	/*!
+	This value depends on the value of \ref SampleRate. The following table lists the recommended values of \ref NumberOfScans for all possible sample rates.
+
+	// Buffer size should be at least 20-30 ms (60 ms recommended).
+	// To calculate a 60 ms buffer use following equation:
+	// (wBufferSize) >= (sample rate)*(60*10^-3)
+	// Example: sample rate = 128 Hz: 128*60*10^-3 = 7.68 so buffer size is 8 scans.
+
+	\li \c 1 for a sample rate of 32 Hz
+	\li \c 2 for a sample rate of 64 Hz
+	\li \c 4 for a sample rate of 128 Hz
+	\li \c 8 for a sample rate of 256 Hz
+	\li \c 16 for a sample rate of 512 Hz
+	\li \c 32 for a sample rate of 600 Hz
+	\li \c 64 for a sample rate of 1200 Hz
+	\li \c 128 for a sample rate of 2400 Hz
+	\li \c 256 for a sample rate of 4800 Hz
+	\li \c 512 for a sample rate of 9600 Hz
+	\li \c 512 for a sample rate of 19200 Hz
+	\li \c 512 for a sample rate of 38400 Hz
+	*/
+	uint32_t NumberOfScans;
+
+	float DriverVersion;
+
+	// Available Filters
+	std::vector<GDS_FILTER_INFO> available_notch_filters;
+	std::vector<GDS_FILTER_INFO> available_bandpass_filters;
+
+	std::vector<GDS_GUSBAMP_CONFIGURATION> Devices;
+	
 } gUSB_system_config, *PgUSB_system_config;
 
 #endif  // GUSBAMP_CONFIG_H

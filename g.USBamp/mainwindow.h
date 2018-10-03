@@ -26,9 +26,10 @@ private:
 	void load_config(const QString& filename);
 	void save_config(const QString& filename);
 	void edit_config();
+	void scan_for_devices();
 	std::unique_ptr<std::thread> recording_thread;
 	std::unique_ptr<Ui::MainWindow> ui;	// window pointer
-	std::shared_ptr<gUSB_system_config> sys_config;
+	std::shared_ptr<gUSB_system_config> m_sys_config; // Sys description. Passed around to GUI and data interface.
 	std::atomic<bool> shutdown{false};  // flag indicating whether the recording thread should quit
 };
 

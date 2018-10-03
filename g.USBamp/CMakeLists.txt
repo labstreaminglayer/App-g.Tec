@@ -50,6 +50,8 @@ target_link_libraries(${PROJECT_NAME}
 	LSL::lsl
 	${gUSBamp_LIBRARIES}
 )
+
+set_property(TARGET ${PROJECT_NAME} PROPERTY C_STANDARD 99)  # BOOL
 set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 14)
 # target_compile_features(${PROJECT_NAME} PRIVATE cxx_auto_type cxx_lambda_init_captures)
 
