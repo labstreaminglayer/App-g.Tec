@@ -67,8 +67,6 @@ gUSBamp_LSL_interface::gUSBamp_LSL_interface(gUSB_system_config sys_config)
 		// BOOL status = GT_SetDRLChannel(dev_cfg->Handle, CHANNEL drlChannel);
 		GT_EnableSC(dev_cfg->Handle, dev_cfg->ShortCutEnabled);
 		GT_SetSlave(dev_cfg->Handle, !dev_cfg->IsMaster);
-		
-		
 	}
 
 	// Start the slaves before the master.
@@ -129,16 +127,6 @@ void gUSBamp_LSL_interface::getChannelLabels(std::vector<std::string> &out_label
 	}
 }
 
-bool gUSBamp_LSL_interface::queueFetch() {
-	size_t dev_ix = 0;
-	bool success = true;
-	// Send async io ops.
-	for (auto dev_cfg = m_sys_config.Devices.begin(); dev_cfg != m_sys_config.Devices.end(); dev_cfg++, dev_ix++) {
-		success &= (bool)GT_GetData(dev_cfg->Handle, p_as_buf[dev_ix].recv_buffer, (DWORD)dev_cfg->BufferSize, p_as_buf[dev_ix].p_ovl);
-	}
-	return success;
-}
-
 void ErrorDisplay(LPTSTR lpszFunction)
 {
 	// Retrieve the system error message for the last-error code
@@ -169,78 +157,6 @@ void ErrorDisplay(LPTSTR lpszFunction)
 
 	LocalFree(lpMsgBuf);
 	LocalFree(lpDisplayBuf);
-}
-
-bool gUSBamp_LSL_interface::getData(std::vector<std::vector<float> > &out_buffer, double &out_timestamp, std::vector<std::pair<double, std::string>> &out_markers) {
-	size_t dev_ix = 0;
-	bool success = true;
-	for (auto dev_cfg = m_sys_config.Devices.begin(); dev_cfg != m_sys_config.Devices.end(); dev_cfg++, dev_ix++) {
-		if (success)
-		{
-			DWORD result = WaitForSingleObject(p_as_buf[dev_ix].p_ovl->hEvent, 1000);
-			success &= result == WAIT_OBJECT_0;
-			if (!success)
-			{
-				if (result == WAIT_ABANDONED)
-					ErrorDisplay(TEXT("WaitForSingleObject-Abandoned"));
-				else if (result == WAIT_TIMEOUT)
-					ErrorDisplay(TEXT("WaitForSingleObject-Timeout"));
-				else if (result == WAIT_FAILED)
-					ErrorDisplay(TEXT("WaitForSingleObject-Failed"));
-			}
-		}
-	}
-
-	size_t out_chan_offset = 0;
-	dev_ix = 0;
-	for (auto dev_cfg = m_sys_config.Devices.begin(); dev_cfg != m_sys_config.Devices.end(); dev_cfg++, dev_ix++) {
-		if (success)
-		{
-			if (dev_ix == 0)
-				out_timestamp = lsl::local_clock();
-
-			int add_trig = dev_cfg->TriggerEnabled ? 1 : 0;
-
-			DWORD bytes_read;
-			success &= GetOverlappedResult(dev_cfg->Handle, p_as_buf[dev_ix].p_ovl, &bytes_read, FALSE) != 0;
-			if (!success)
-				ErrorDisplay(TEXT("GetOverlappedResult"));
-			else
-			{
-				success &= bytes_read == dev_cfg->BufferSize;
-				if (!success)
-					std::cout << "BufferSize: " << dev_cfg->BufferSize << "; bytes_read: " << bytes_read << std::endl;
-				else {
-					for (size_t sample_ix = 0; sample_ix < m_sys_config.NumberOfScans; sample_ix++)
-					{
-						for (size_t channel_ix = 0; channel_ix < dev_cfg->ActiveChannelCount; channel_ix++)
-						{
-							out_buffer[sample_ix][out_chan_offset + channel_ix] = dev_cfg->Scaling.Offset[dev_cfg->ActiveChannelId[channel_ix]]
-								+ (dev_cfg->Scaling.ScalingFactor[dev_cfg->ActiveChannelId[channel_ix]]
-									* p_as_buf[dev_ix].src_buffer[channel_ix + sample_ix * (dev_cfg->ActiveChannelCount + add_trig)]);
-						}
-					}
-				}
-
-			}
-		}
-		out_chan_offset += dev_cfg->ActiveChannelCount;
-
-		if (dev_cfg->TriggerEnabled)
-		{
-			for (size_t sample_ix = 0; sample_ix < m_sys_config.NumberOfScans; sample_ix++)
-			{
-				float new_mark = p_as_buf[dev_ix].src_buffer[dev_cfg->ActiveChannelCount + sample_ix * (dev_cfg->ActiveChannelCount + 1)];
-				if (new_mark != p_as_buf[dev_ix].last_mark)
-				{
-					double marker_time = out_timestamp + (sample_ix + 1 - m_sys_config.NumberOfScans) / m_sys_config.SampleRate;
-					out_markers.push_back(std::pair<double, std::string>(marker_time, std::to_string(new_mark)));
-					p_as_buf[dev_ix].last_mark = new_mark;
-				}
-			}
-		}
-	}
-	return success;
 }
 
 // Static function to scan available devices and get basic config information for each.
@@ -380,73 +296,137 @@ void gUSBamp_LSL_interface::recording_thread_function(std::atomic<bool>& shutdow
 	lsl::stream_outlet marker_outlet(marker_info);
 
 	double lsl_timestamp = lsl::local_clock();
-	std::vector<std::vector<float> > buffer(chunk_size, std::vector<float>(channel_count));
-	std::vector<std::pair<double, std::string>> marker_buffer;
-	marker_buffer.clear();
 
-	// Async IO structures.
-	// The only reason we have them as a member variable is so that they are available to getData,
-	// because getData was previously called by an outside function.
-	p_as_buf = new as_buf[CHAINED_DEVICES_MAX];
+	// Create output (lsl push) buffer.
+	// We can't simply push the buffers we get from the devices because we need to join buffers across sync'd devices.
+	std::vector<std::vector<float> > buffer(chunk_size, std::vector<float>(channel_count));
+
+	// Create Async IO structures.
+	std::vector<as_buf> async_data;
+	async_data.resize(m_sys_config.Devices.size());
 	size_t dev_ix = 0;
 	for (auto dev_cfg = m_sys_config.Devices.begin(); dev_cfg != m_sys_config.Devices.end(); dev_cfg++, dev_ix++) {
-		p_as_buf[dev_ix].hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
-		p_as_buf[dev_ix].p_ovl = new OVERLAPPED;
-		memset(p_as_buf[dev_ix].p_ovl, 0, sizeof(OVERLAPPED));
-		p_as_buf[dev_ix].p_ovl->hEvent = p_as_buf[dev_ix].hEvent;
-		p_as_buf[dev_ix].p_ovl->Offset = 0;
-		p_as_buf[dev_ix].p_ovl->OffsetHigh = 0;
-		ResetEvent(p_as_buf[dev_ix].hEvent);
+		async_data[dev_ix].hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+		async_data[dev_ix].p_ovl = new OVERLAPPED;
+		memset(async_data[dev_ix].p_ovl, 0, sizeof(OVERLAPPED));
+		async_data[dev_ix].p_ovl->hEvent = async_data[dev_ix].hEvent;
+		async_data[dev_ix].p_ovl->Offset = 0;
+		async_data[dev_ix].p_ovl->OffsetHigh = 0;
+		ResetEvent(async_data[dev_ix].hEvent);
 
 		// Buffers
 		int trig_ch = dev_cfg->TriggerEnabled ? 1 : 0;
 		dev_cfg->BufferSize = (unsigned int)(m_sys_config.NumberOfScans * (dev_cfg->ActiveChannelCount + trig_ch) * sizeof(float) + HEADER_SIZE);
-		p_as_buf[dev_ix].recv_buffer = new BYTE[dev_cfg->BufferSize];
-		p_as_buf[dev_ix].src_buffer = reinterpret_cast<float*>(p_as_buf[dev_ix].recv_buffer + HEADER_SIZE);
+		async_data[dev_ix].recv_buffer = new BYTE[dev_cfg->BufferSize];
+		async_data[dev_ix].src_buffer = reinterpret_cast<float*>(async_data[dev_ix].recv_buffer + HEADER_SIZE);
 
-		p_as_buf[dev_ix].last_mark = 0;
+		async_data[dev_ix].last_mark = 0;
 	}
 
 	while (!shutdown) {
-		queueFetch();
-		if (getData(buffer, lsl_timestamp, marker_buffer)) {  // Get result of previously queued data fetch.
-			outlet.push_chunk(buffer, lsl_timestamp);  // Push the result.
-			if (marker_buffer.size() > 0)
-			{
-				for (auto mrk_pair : marker_buffer)
+		size_t dev_ix = 0;
+		bool success = true;
+
+		// Send async io ops to queue up data fetch.
+		for (auto dev_cfg = m_sys_config.Devices.begin(); dev_cfg != m_sys_config.Devices.end(); dev_cfg++, dev_ix++) {
+			success &= (bool)GT_GetData(dev_cfg->Handle, async_data[dev_ix].recv_buffer, (DWORD)dev_cfg->BufferSize, async_data[dev_ix].p_ovl);
+		}
+
+		if (success)
+		{
+			// Wait until data are available on all devices.
+			dev_ix = 0;
+			for (auto dev_cfg = m_sys_config.Devices.begin(); dev_cfg != m_sys_config.Devices.end(); dev_cfg++, dev_ix++) {
+				if (success)
 				{
-					marker_outlet.push_sample(&mrk_pair.second, mrk_pair.first);
+					DWORD result = WaitForSingleObject(async_data[dev_ix].p_ovl->hEvent, 1000);
+					success &= result == WAIT_OBJECT_0;
+					if (!success)
+					{
+						if (result == WAIT_ABANDONED)
+							ErrorDisplay(TEXT("WaitForSingleObject-Abandoned"));
+						else if (result == WAIT_TIMEOUT)
+							ErrorDisplay(TEXT("WaitForSingleObject-Timeout"));
+						else if (result == WAIT_FAILED)
+							ErrorDisplay(TEXT("WaitForSingleObject-Failed"));
+					}
+				}
+			}
+
+			lsl_timestamp = lsl::local_clock();  // As soon as we know the data are available, but before the copy operations.
+
+			// Copy data from Windows buffers to our own single buffer.
+			size_t out_chan_offset = 0;
+			dev_ix = 0;
+			for (auto dev_cfg = m_sys_config.Devices.begin(); dev_cfg != m_sys_config.Devices.end(); dev_cfg++, dev_ix++) {
+				if (success)
+				{
+					int add_trig = dev_cfg->TriggerEnabled ? 1 : 0;
+
+					DWORD bytes_read;
+					success &= GetOverlappedResult(dev_cfg->Handle, async_data[dev_ix].p_ovl, &bytes_read, FALSE) != 0;
+					if (!success)
+						ErrorDisplay(TEXT("GetOverlappedResult"));
+					else
+					{
+						success &= bytes_read == dev_cfg->BufferSize;
+						if (!success)
+							std::cout << "BufferSize: " << dev_cfg->BufferSize << "; bytes_read: " << bytes_read << std::endl;
+						else {
+							for (size_t sample_ix = 0; sample_ix < m_sys_config.NumberOfScans; sample_ix++)
+							{
+								for (size_t channel_ix = 0; channel_ix < dev_cfg->ActiveChannelCount; channel_ix++)
+								{
+									buffer[sample_ix][out_chan_offset + channel_ix] = dev_cfg->Scaling.Offset[dev_cfg->ActiveChannelId[channel_ix]]
+										+ (dev_cfg->Scaling.ScalingFactor[dev_cfg->ActiveChannelId[channel_ix]]
+											* async_data[dev_ix].src_buffer[channel_ix + sample_ix * (dev_cfg->ActiveChannelCount + add_trig)]);
+								}
+							}
+						}
+
+					}
+				}
+				out_chan_offset += dev_cfg->ActiveChannelCount;
+
+				if (dev_cfg->TriggerEnabled)
+				{
+					for (size_t sample_ix = 0; sample_ix < m_sys_config.NumberOfScans; sample_ix++)
+					{
+						float new_mark = async_data[dev_ix].src_buffer[dev_cfg->ActiveChannelCount + sample_ix * (dev_cfg->ActiveChannelCount + 1)];
+						if (new_mark != async_data[dev_ix].last_mark)
+						{
+							double marker_offset = ((double)sample_ix + 1 - (double)m_sys_config.NumberOfScans) / (double)m_sys_config.SampleRate;
+							marker_outlet.push_sample(&std::to_string((int)new_mark), lsl_timestamp + marker_offset);
+							async_data[dev_ix].last_mark = new_mark;
+						}
+					}
 				}
 			}
 		}
-		else {
-			//break; // Acquisition was unsuccessful? -> Quit
+		if (success)
+		{
+			outlet.push_chunk(buffer, lsl_timestamp);
 		}
 	}
 
 	dev_ix = 0;
 	for (auto dev_cfg = m_sys_config.Devices.begin(); dev_cfg != m_sys_config.Devices.end(); dev_cfg++, dev_ix++) {
 		// Clear and delete buffers.
-		if (p_as_buf[dev_ix].hEvent)
+		if (async_data[dev_ix].hEvent)
 		{
-			CloseHandle(p_as_buf[dev_ix].hEvent);
-			p_as_buf[dev_ix].hEvent = NULL;
+			CloseHandle(async_data[dev_ix].hEvent);
+			async_data[dev_ix].hEvent = NULL;
 		}
-		if (p_as_buf[dev_ix].p_ovl)
+		if (async_data[dev_ix].p_ovl)
 		{
-			delete p_as_buf[dev_ix].p_ovl;
-			p_as_buf[dev_ix].p_ovl = NULL;
+			delete async_data[dev_ix].p_ovl;
+			async_data[dev_ix].p_ovl = NULL;
 		}
-		if (p_as_buf[dev_ix].recv_buffer)
+		if (async_data[dev_ix].recv_buffer)
 		{
-			delete p_as_buf[dev_ix].recv_buffer;
-			p_as_buf[dev_ix].recv_buffer = NULL;
+			delete async_data[dev_ix].recv_buffer;
+			async_data[dev_ix].recv_buffer = NULL;
 		}
-	}
-	if (p_as_buf)
-	{
-		delete p_as_buf;
-		p_as_buf = NULL;
 	}
 
 	// When `device` goes out of scope, its destructor should clean up the connection and buffers.

@@ -189,61 +189,6 @@ void MainWindow::scan_for_devices() {
 	}
 }
 
-void recording_thread_function(gUSB_system_config const &sys_config, std::atomic<bool>& shutdown) {
-	gUSBamp_LSL_interface device(sys_config);  // Interface opens & configs the devices, starts acquisition.
-
-	// Get info for outlet.
-	size_t chunk_size, channel_count, marker_count;
-	uint32_t srate;
-	std::string serial;
-	device.getAcquisitionParameters(chunk_size, channel_count, srate, serial, marker_count);
-	std::vector<std::string> channel_labels;
-	device.getChannelLabels(channel_labels);
-	lsl::stream_info info("g.USBamp", "EEG", (int32_t)channel_count, (double)srate, lsl::cf_float32, serial);
-	lsl::xml_element channels = info.desc().append_child("channels");
-	for (int chan_ix = 0; chan_ix < channel_count; chan_ix++)
-		channels.append_child("channel")
-		.append_child_value("label", channel_labels[chan_ix].c_str())
-		.append_child_value("type", "EEG")
-		.append_child_value("unit", "microvolts");
-	info.desc().append_child("acquisition")
-		.append_child_value("manufacturer", "g.Tec")
-		.append_child_value("serial_number", serial.c_str());
-
-	lsl::stream_outlet outlet(info);
-
-	std::string marker_uid = serial + "_markers";
-	lsl::stream_info marker_info("g.USBamp-Markers", "Markers", 1, lsl::IRREGULAR_RATE, lsl::cf_string, marker_uid);
-	marker_info.desc().append_child("acquisition")
-		.append_child_value("manufacturer", "g.Tec")
-		.append_child_value("serial_number", serial.c_str());
-	//lsl::stream_outlet marker_outlet(marker_info);
-	
-	double lsl_timestamp = lsl::local_clock();
-	std::vector<std::vector<float> > buffer(chunk_size, std::vector<float>(channel_count));
-	std::vector<std::pair<double, std::string>> marker_buffer;
-	marker_buffer.clear();
-
-	while (!shutdown) {
-		if (device.getData(buffer, lsl_timestamp, marker_buffer)) {  // Get result of previously queued data fetch.
-			outlet.push_chunk(buffer, lsl_timestamp);  // Push the result.
-			/*
-			if (marker_buffer.size() > 0)
-			{
-				for (auto mrk_pair : marker_buffer)
-				{
-					marker_outlet.push_sample(&mrk_pair.second, mrk_pair.first);
-				}
-			}
-			*/
-		} else {
-			//break; // Acquisition was unsuccessful? -> Quit
-		}
-	}
-
-	// When `device` goes out of scope, its destructor should clean up the connection and buffers.
-}
-
 void MainWindow::toggleRecording() {
 	if (!recording_thread) {
 		// While I prefer to have device initialization and communication all happen within the same thread,
