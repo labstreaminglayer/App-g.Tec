@@ -212,10 +212,14 @@ void recording_thread_function(gUSB_system_config const &sys_config, std::atomic
 
 	lsl::stream_outlet outlet(info);
 
-	lsl::stream_info marker_info("g.USBamp-Markers", "Markers", 1, 0, lsl::cf_string, serial + "_markers");
-	lsl::stream_outlet marker_outlet(marker_info);
+	std::string marker_uid = serial + "_markers";
+	lsl::stream_info marker_info("g.USBamp-Markers", "Markers", 1, lsl::IRREGULAR_RATE, lsl::cf_string, marker_uid);
+	marker_info.desc().append_child("acquisition")
+		.append_child_value("manufacturer", "g.Tec")
+		.append_child_value("serial_number", serial.c_str());
+	//lsl::stream_outlet marker_outlet(marker_info);
 	
-	double lsl_timestamp;
+	double lsl_timestamp = lsl::local_clock();
 	std::vector<std::vector<float> > buffer(chunk_size, std::vector<float>(channel_count));
 	std::vector<std::pair<double, std::string>> marker_buffer;
 	marker_buffer.clear();
@@ -223,6 +227,7 @@ void recording_thread_function(gUSB_system_config const &sys_config, std::atomic
 	while (!shutdown) {
 		if (device.getData(buffer, lsl_timestamp, marker_buffer)) {  // Get result of previously queued data fetch.
 			outlet.push_chunk(buffer, lsl_timestamp);  // Push the result.
+			/*
 			if (marker_buffer.size() > 0)
 			{
 				for (auto mrk_pair : marker_buffer)
@@ -230,6 +235,7 @@ void recording_thread_function(gUSB_system_config const &sys_config, std::atomic
 					marker_outlet.push_sample(&mrk_pair.second, mrk_pair.first);
 				}
 			}
+			*/
 		} else {
 			//break; // Acquisition was unsuccessful? -> Quit
 		}
@@ -240,14 +246,15 @@ void recording_thread_function(gUSB_system_config const &sys_config, std::atomic
 
 void MainWindow::toggleRecording() {
 	if (!recording_thread) {
-		// read the configuration from the UI fields
+		// While I prefer to have device initialization and communication all happen within the same thread,
+		// doing so was associated (perhaps coincidentally) with timeouts on reading the device buffer.
+		// So we now initialize and 'start' the devices here in the main thread (in gUSBamp_LSL_interface constructor).
+		std::shared_ptr<gUSBamp_LSL_interface> dev_interface = std::make_shared<gUSBamp_LSL_interface>(*m_sys_config);
+
 		shutdown = false;
-		// The thread passes the config to the gUSBamp_LSL_interface constructor which immediately makes a copy.
-		// Below, std::ref isn't intended to let the thread modify m_sys_config in a way that makes it back to the main thread.
-		// It simply avoids an unnecessary copy on thread creation, because the thread immediately passes the config to the
-		// gUSBamp_LSL_interface constructor which makes a copy (via initializer list).
-		recording_thread = std::make_unique<std::thread>(&recording_thread_function, std::ref(*m_sys_config), std::ref(shutdown));
+		recording_thread = std::make_unique<std::thread>(&gUSBamp_LSL_interface::recording_thread_function, dev_interface, std::ref(shutdown));
 		ui->linkButton->setText("Unlink");
+		// dev_interface goes out of scope here but its ref counter was incremented by the thread. It will be destroyed when the thread ends.
 	}
 	else {
 		shutdown = true;

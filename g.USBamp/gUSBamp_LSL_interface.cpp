@@ -9,10 +9,11 @@
 #include "gUSBamp.h"
 #include "lsl_cpp.h"
 #include <iostream>
+#include <atomic>
 
 struct as_buf
 {
-	OVERLAPPED ovl;
+	OVERLAPPED *p_ovl;
 	HANDLE hEvent;
 	BYTE *recv_buffer;  // 
 	float *src_buffer;  // Shares memory with recv_buffer starting after HEADER_SIZE.
@@ -25,9 +26,6 @@ gUSBamp_LSL_interface::gUSBamp_LSL_interface(gUSB_system_config sys_config)
 	// From sampling rate, determine optimal NumberOfScans (i.e., number of samples per chunk).
 	ptrdiff_t pos = std::distance(gUSBamp_sample_rates.begin(), std::find(gUSBamp_sample_rates.begin(), gUSBamp_sample_rates.end(), m_sys_config.SampleRate));
 	m_sys_config.NumberOfScans = gUSBamp_buffer_sizes[pos];
-
-	// One set of async handles and buffers per device.
-	m_as_buf.resize(m_sys_config.Devices.size());
 
 	size_t dev_ix = 0;
 	for (auto dev_cfg = m_sys_config.Devices.begin(); dev_cfg != m_sys_config.Devices.end(); dev_cfg++, dev_ix++) {
@@ -56,7 +54,7 @@ gUSBamp_LSL_interface::gUSBamp_LSL_interface(gUSB_system_config sys_config)
 		{
 			GT_SetBandPass(dev_cfg->Handle, chan_ix, dev_cfg->Channels[chan_ix - 1].BandpassFilterIndex);
 			GT_SetNotch(dev_cfg->Handle, chan_ix, dev_cfg->Channels[chan_ix - 1].NotchFilterIndex);
-			CHANNEL bipoChannel = { chan_ix, dev_cfg->Channels[chan_ix - 1].BipolarChannel };
+			CHANNEL bipoChannel = { chan_ix, (UCHAR)dev_cfg->Channels[chan_ix - 1].BipolarChannel };
 			GT_SetBipolar(dev_cfg->Handle, bipoChannel);
 		}
 		
@@ -70,21 +68,7 @@ gUSBamp_LSL_interface::gUSBamp_LSL_interface(gUSB_system_config sys_config)
 		GT_EnableSC(dev_cfg->Handle, dev_cfg->ShortCutEnabled);
 		GT_SetSlave(dev_cfg->Handle, !dev_cfg->IsMaster);
 		
-		// Async IO structures
-		m_as_buf[dev_ix].hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
-		memset(&m_as_buf[dev_ix].ovl, 0, sizeof(OVERLAPPED));
-		m_as_buf[dev_ix].ovl.hEvent = m_as_buf[dev_ix].hEvent;
-		m_as_buf[dev_ix].ovl.Offset = 0;
-		m_as_buf[dev_ix].ovl.OffsetHigh = 0;
-		ResetEvent(m_as_buf[dev_ix].hEvent);
-
-		// Buffers
-		int trig_ch = dev_cfg->TriggerEnabled ? 1 : 0;
-		dev_cfg->BufferSize = (unsigned int)(m_sys_config.NumberOfScans * (chans_active.size() + trig_ch) * sizeof(float) + HEADER_SIZE);
-		m_as_buf[dev_ix].recv_buffer = new BYTE[dev_cfg->BufferSize];
-		m_as_buf[dev_ix].src_buffer = reinterpret_cast<float*>(m_as_buf[dev_ix].recv_buffer + HEADER_SIZE);
-
-		m_as_buf[dev_ix].last_mark = 0;
+		
 	}
 
 	// Start the slaves before the master.
@@ -97,7 +81,6 @@ gUSBamp_LSL_interface::gUSBamp_LSL_interface(gUSB_system_config sys_config)
 		if (dev_cfg.IsMaster)
 			GT_Start(dev_cfg.Handle);
 	}
-	queueFetch();
 }
 
 gUSBamp_LSL_interface::~gUSBamp_LSL_interface() {
@@ -117,19 +100,6 @@ gUSBamp_LSL_interface::~gUSBamp_LSL_interface() {
 			GT_CloseDevice(&dev_cfg.Handle);
 		}
 	}
-	size_t dev_ix = 0;
-	for (auto dev_cfg = m_sys_config.Devices.begin(); dev_cfg != m_sys_config.Devices.end(); dev_cfg++, dev_ix++) {
-		if (m_as_buf[dev_ix].hEvent)
-		{
-			CloseHandle(m_as_buf[dev_ix].hEvent);
-			m_as_buf[dev_ix].hEvent = NULL;
-		}
-
-		// Clear and delete buffers.
-		delete m_as_buf[dev_ix].recv_buffer;
-		m_as_buf[dev_ix].recv_buffer = NULL;
-	}
-	
 }
 
 void gUSBamp_LSL_interface::getAcquisitionParameters(size_t &chunk_size, size_t &channel_count, uint32_t &sample_rate, std::string &serial, size_t &marker_count)
@@ -164,7 +134,7 @@ bool gUSBamp_LSL_interface::queueFetch() {
 	bool success = true;
 	// Send async io ops.
 	for (auto dev_cfg = m_sys_config.Devices.begin(); dev_cfg != m_sys_config.Devices.end(); dev_cfg++, dev_ix++) {
-		success &= (bool)GT_GetData(dev_cfg->Handle, m_as_buf[dev_ix].recv_buffer, (DWORD)dev_cfg->BufferSize, &m_as_buf[dev_ix].ovl);
+		success &= (bool)GT_GetData(dev_cfg->Handle, p_as_buf[dev_ix].recv_buffer, (DWORD)dev_cfg->BufferSize, p_as_buf[dev_ix].p_ovl);
 	}
 	return success;
 }
@@ -207,14 +177,14 @@ bool gUSBamp_LSL_interface::getData(std::vector<std::vector<float> > &out_buffer
 	for (auto dev_cfg = m_sys_config.Devices.begin(); dev_cfg != m_sys_config.Devices.end(); dev_cfg++, dev_ix++) {
 		if (success)
 		{
-			DWORD result = WaitForSingleObject(m_as_buf[dev_ix].ovl.hEvent, 1000);
+			DWORD result = WaitForSingleObject(p_as_buf[dev_ix].p_ovl->hEvent, 1000);
 			success &= result == WAIT_OBJECT_0;
 			if (!success)
 			{
 				if (result == WAIT_ABANDONED)
 					ErrorDisplay(TEXT("WaitForSingleObject-Abandoned"));
-				//else if (result == WAIT_TIMEOUT)
-				//	ErrorDisplay(TEXT("WaitForSingleObject-Timeout"));
+				else if (result == WAIT_TIMEOUT)
+					ErrorDisplay(TEXT("WaitForSingleObject-Timeout"));
 				else if (result == WAIT_FAILED)
 					ErrorDisplay(TEXT("WaitForSingleObject-Failed"));
 			}
@@ -232,7 +202,7 @@ bool gUSBamp_LSL_interface::getData(std::vector<std::vector<float> > &out_buffer
 			int add_trig = dev_cfg->TriggerEnabled ? 1 : 0;
 
 			DWORD bytes_read;
-			success &= GetOverlappedResult(dev_cfg->Handle, &m_as_buf[dev_ix].ovl, &bytes_read, FALSE) != 0;
+			success &= GetOverlappedResult(dev_cfg->Handle, p_as_buf[dev_ix].p_ovl, &bytes_read, FALSE) != 0;
 			if (!success)
 				ErrorDisplay(TEXT("GetOverlappedResult"));
 			else
@@ -247,7 +217,7 @@ bool gUSBamp_LSL_interface::getData(std::vector<std::vector<float> > &out_buffer
 						{
 							out_buffer[sample_ix][out_chan_offset + channel_ix] = dev_cfg->Scaling.Offset[dev_cfg->ActiveChannelId[channel_ix]]
 								+ (dev_cfg->Scaling.ScalingFactor[dev_cfg->ActiveChannelId[channel_ix]]
-									* m_as_buf[dev_ix].src_buffer[channel_ix + sample_ix * (dev_cfg->ActiveChannelCount + add_trig)]);
+									* p_as_buf[dev_ix].src_buffer[channel_ix + sample_ix * (dev_cfg->ActiveChannelCount + add_trig)]);
 						}
 					}
 				}
@@ -260,21 +230,18 @@ bool gUSBamp_LSL_interface::getData(std::vector<std::vector<float> > &out_buffer
 		{
 			for (size_t sample_ix = 0; sample_ix < m_sys_config.NumberOfScans; sample_ix++)
 			{
-				float new_mark = m_as_buf[dev_ix].src_buffer[dev_cfg->ActiveChannelCount + sample_ix * (dev_cfg->ActiveChannelCount + 1)];
-				if (new_mark != m_as_buf[dev_ix].last_mark)
+				float new_mark = p_as_buf[dev_ix].src_buffer[dev_cfg->ActiveChannelCount + sample_ix * (dev_cfg->ActiveChannelCount + 1)];
+				if (new_mark != p_as_buf[dev_ix].last_mark)
 				{
 					double marker_time = out_timestamp + (sample_ix + 1 - m_sys_config.NumberOfScans) / m_sys_config.SampleRate;
 					out_markers.push_back(std::pair<double, std::string>(marker_time, std::to_string(new_mark)));
-					m_as_buf[dev_ix].last_mark = new_mark;
+					p_as_buf[dev_ix].last_mark = new_mark;
 				}
 			}
 		}
 	}
-	if (success)
-		success &= queueFetch();
 	return success;
 }
-
 
 // Static function to scan available devices and get basic config information for each.
 void gUSBamp_LSL_interface::enumerateDevices(std::shared_ptr<gUSB_system_config> sys_config)
@@ -379,4 +346,108 @@ void gUSBamp_LSL_interface::enumerateDevices(std::shared_ptr<gUSB_system_config>
 			}
 		}
 	}
+}
+
+void gUSBamp_LSL_interface::recording_thread_function(std::atomic<bool>& shutdown) {
+	
+	// Get info for outlet.
+	size_t chunk_size, channel_count, marker_count;
+	uint32_t srate;
+	std::string serial;
+	getAcquisitionParameters(chunk_size, channel_count, srate, serial, marker_count);
+
+	// Create brain signal outlet.
+	std::vector<std::string> channel_labels;
+	getChannelLabels(channel_labels);
+	lsl::stream_info info("g.USBamp", "EEG", (int32_t)channel_count, (double)srate, lsl::cf_float32, serial);
+	lsl::xml_element channels = info.desc().append_child("channels");
+	for (int chan_ix = 0; chan_ix < channel_count; chan_ix++)
+		channels.append_child("channel")
+		.append_child_value("label", channel_labels[chan_ix].c_str())
+		.append_child_value("type", "EEG")
+		.append_child_value("unit", "microvolts");
+	info.desc().append_child("acquisition")
+		.append_child_value("manufacturer", "g.Tec")
+		.append_child_value("serial_number", serial.c_str());
+	lsl::stream_outlet outlet(info);
+
+	// Create marker outlet.
+	std::string marker_uid = serial + "_markers";
+	lsl::stream_info marker_info("g.USBamp-Markers", "Markers", 1, lsl::IRREGULAR_RATE, lsl::cf_string, marker_uid);
+	marker_info.desc().append_child("acquisition")
+		.append_child_value("manufacturer", "g.Tec")
+		.append_child_value("serial_number", serial.c_str());
+	lsl::stream_outlet marker_outlet(marker_info);
+
+	double lsl_timestamp = lsl::local_clock();
+	std::vector<std::vector<float> > buffer(chunk_size, std::vector<float>(channel_count));
+	std::vector<std::pair<double, std::string>> marker_buffer;
+	marker_buffer.clear();
+
+	// Async IO structures.
+	// The only reason we have them as a member variable is so that they are available to getData,
+	// because getData was previously called by an outside function.
+	p_as_buf = new as_buf[CHAINED_DEVICES_MAX];
+	size_t dev_ix = 0;
+	for (auto dev_cfg = m_sys_config.Devices.begin(); dev_cfg != m_sys_config.Devices.end(); dev_cfg++, dev_ix++) {
+		p_as_buf[dev_ix].hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+		p_as_buf[dev_ix].p_ovl = new OVERLAPPED;
+		memset(p_as_buf[dev_ix].p_ovl, 0, sizeof(OVERLAPPED));
+		p_as_buf[dev_ix].p_ovl->hEvent = p_as_buf[dev_ix].hEvent;
+		p_as_buf[dev_ix].p_ovl->Offset = 0;
+		p_as_buf[dev_ix].p_ovl->OffsetHigh = 0;
+		ResetEvent(p_as_buf[dev_ix].hEvent);
+
+		// Buffers
+		int trig_ch = dev_cfg->TriggerEnabled ? 1 : 0;
+		dev_cfg->BufferSize = (unsigned int)(m_sys_config.NumberOfScans * (dev_cfg->ActiveChannelCount + trig_ch) * sizeof(float) + HEADER_SIZE);
+		p_as_buf[dev_ix].recv_buffer = new BYTE[dev_cfg->BufferSize];
+		p_as_buf[dev_ix].src_buffer = reinterpret_cast<float*>(p_as_buf[dev_ix].recv_buffer + HEADER_SIZE);
+
+		p_as_buf[dev_ix].last_mark = 0;
+	}
+
+	while (!shutdown) {
+		queueFetch();
+		if (getData(buffer, lsl_timestamp, marker_buffer)) {  // Get result of previously queued data fetch.
+			outlet.push_chunk(buffer, lsl_timestamp);  // Push the result.
+			if (marker_buffer.size() > 0)
+			{
+				for (auto mrk_pair : marker_buffer)
+				{
+					marker_outlet.push_sample(&mrk_pair.second, mrk_pair.first);
+				}
+			}
+		}
+		else {
+			//break; // Acquisition was unsuccessful? -> Quit
+		}
+	}
+
+	dev_ix = 0;
+	for (auto dev_cfg = m_sys_config.Devices.begin(); dev_cfg != m_sys_config.Devices.end(); dev_cfg++, dev_ix++) {
+		// Clear and delete buffers.
+		if (p_as_buf[dev_ix].hEvent)
+		{
+			CloseHandle(p_as_buf[dev_ix].hEvent);
+			p_as_buf[dev_ix].hEvent = NULL;
+		}
+		if (p_as_buf[dev_ix].p_ovl)
+		{
+			delete p_as_buf[dev_ix].p_ovl;
+			p_as_buf[dev_ix].p_ovl = NULL;
+		}
+		if (p_as_buf[dev_ix].recv_buffer)
+		{
+			delete p_as_buf[dev_ix].recv_buffer;
+			p_as_buf[dev_ix].recv_buffer = NULL;
+		}
+	}
+	if (p_as_buf)
+	{
+		delete p_as_buf;
+		p_as_buf = NULL;
+	}
+
+	// When `device` goes out of scope, its destructor should clean up the connection and buffers.
 }
