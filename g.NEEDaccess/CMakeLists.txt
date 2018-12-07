@@ -1,28 +1,17 @@
 cmake_minimum_required(VERSION 3.0)
 project(gNEEDaccess VERSION 0.0.1)
 
-# load LSLAppBoilerplate if not done already
 if(NOT TARGET LSL::lsl)
-    if(NOT LSL_INSTALL_ROOT)
-        # If building the app out of tree, the user is expected to supply LSL_INSTALL_ROOT.
-        # For ease of Chadwick Boulay's development, he has added a default directory to check.
-        # This default directory is probably wrong for you. Ignore it.
-        # Just supply -DLSL_INSTALL_ROOT=/path/to/installed/lsl to the cmake command.
-        set(LSL_INSTALL_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../build/install/lsl_Release/LSL")
-        set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_LIST_DIR}/../../../build/install/lsl_Release")
-        get_filename_component(LSL_INSTALL_ROOT ${LSL_INSTALL_ROOT} ABSOLUTE)
-        if(NOT EXISTS ${LSL_INSTALL_ROOT})
-            message(FATAL_ERROR "When building a single app out of tree you need to set LSL_INSTALL_ROOT ( cmake -DLSL_INSTALL_ROOT=/path/to/installed/lsl)")
-        endif()
+    # when building out of tree LSL_ROOT needs to be specified on the cmd line
+    file(TO_CMAKE_PATH "${LSL_INSTALL_ROOT}" LSL_INSTALL_ROOT)
+    list(APPEND LSL_INSTALL_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../LSL/liblsl/build/install")
+    find_package(LSL HINTS ${LSL_INSTALL_ROOT}/share/LSL/ ${LSL_INSTALL_ROOT}/LSL/share/LSL QUIET)
+    if(NOT LSL_FOUND)
+        message(FATAL_ERROR "Precompiled LSL was not found. See https://github.com/labstreaminglayer/labstreaminglayer/blob/master/doc/BUILD.md#lsl_install_root for more information.")
     endif()
-    if(NOT IS_ABSOLUTE ${LSL_INSTALL_ROOT})
-        message(FATAL_ERROR "LSL_INSTALL_ROOT needs to be an absolute path")
-    endif()
-    file(TO_CMAKE_PATH ${LSL_INSTALL_ROOT} LSL_INSTALL_ROOT)
-    list(APPEND CMAKE_MODULE_PATH "${LSL_INSTALL_ROOT}/cmake")
-    include(LSLAppBoilerplate)
-    list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/../../../cmake")
-    include(LSLSaneDefaults)
+    list(APPEND CMAKE_MODULE_PATH ${LSL_DIR})
+    message(STATUS "Looking for LSLCMake in ${LSL_DIR}")
+    include(LSLCMake)
 endif()
 
 # GENERAL CONFIG #
@@ -107,6 +96,8 @@ target_link_libraries(${target}
 #)
 #endif()
 
+set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 14)
+# target_compile_features(${PROJECT_NAME} PRIVATE cxx_auto_type cxx_lambda_init_captures)
 
 # Deployment # 
 installLSLApp(${target})  # Will handle Qt and LSL libraries
@@ -115,3 +106,5 @@ installLSLAuxFiles(${target} ${CMAKE_CURRENT_LIST_DIR}/gNautilus_default.cfg)
 installLSLAuxFiles(${target} ${CMAKE_CURRENT_LIST_DIR}/gHIamp_default.cfg)
 installLSLAuxFiles(${target} ${CMAKE_CURRENT_LIST_DIR}/gUSBamp_default.cfg)
 #installLSLAuxFiles(${target} ${gNEEDaccessSDK_BINARIES})  # Not necessary because g.Tec gNEEDaccess installer puts libraries on the path.
+
+LSLGenerateCPackConfig()
