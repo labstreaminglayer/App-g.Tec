@@ -521,19 +521,6 @@ void MainWindow::on_goPushButton_clicked()
 				std::vector<GDS_FILTER_INFO> notchFilters(notchFiltersCount);
 				res = GDS_GNAUTILUS_GetNotchFilters(m_connectionHandle, device_names, notchFilters.data(), &notchFiltersCount);
 
-				// Get channel names. This seems broken.
-				/*
-				// First determine how many channel names there are.
-				uint32_t mountedModulesCount = 0;
-				size_t electrodeNamesCount = 0;
-				success &= handleResult("GDS_GNAUTILUS_GetChannelNames",
-					GDS_GNAUTILUS_GetChannelNames(m_connectionHandle, device_names, &mountedModulesCount, NULL, &electrodeNamesCount));
-				// Allocate memory to store the channel names.
-				char(*electrode_names)[GDS_GNAUTILUS_ELECTRODE_NAME_LENGTH_MAX] = new char[electrodeNamesCount][GDS_GNAUTILUS_ELECTRODE_NAME_LENGTH_MAX];
-				success &= handleResult("GDS_GNAUTILUS_GetChannelNames",
-					GDS_GNAUTILUS_GetChannelNames(m_connectionHandle, device_names, &mountedModulesCount, electrode_names, &electrodeNamesCount));
-					*/
-
 				// Copy the result into thisDevInfo
 				for (int chan_ix = 0; chan_ix < GDS_GNAUTILUS_CHANNELS_MAX; chan_ix++)
 				{

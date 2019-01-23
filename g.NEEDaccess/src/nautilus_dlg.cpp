@@ -30,19 +30,33 @@ void NautilusDlg::create_widgets()
 {
 	ui->dev_label->setText(m_config.DeviceInfo.Name);
 
-	ui->bipolar_spinBox->setRange(0, GDS_GNAUTILUS_CHANNELS_MAX);
+	ui->bipolar_spinBox->setRange(-1, GDS_GNAUTILUS_CHANNELS_MAX);
+	ui->bipolar_spinBox->setValue(-1);
 
+	// Get device_name for API calls
+	char(*device_name)[DEVICE_NAME_LENGTH_MAX] = new char[1][DEVICE_NAME_LENGTH_MAX];
+	std::strcpy(device_name[0], m_config.DeviceInfo.Name);
+	
+	// Get channel names from device. Note that gNautilus is the only device type that stores channel names.
+	// First determine how many channel names there are.
+	uint32_t mountedModulesCount = 0;
+	size_t electrodeNamesCount = 0;
+	GDS_RESULT res = GDS_GNAUTILUS_GetChannelNames(*m_pHandle, device_name, &mountedModulesCount, NULL, &electrodeNamesCount);
+	// Allocate memory to store the channel names.
+	char(*electrode_names)[GDS_GNAUTILUS_ELECTRODE_NAME_LENGTH_MAX] =
+		new char[electrodeNamesCount][GDS_GNAUTILUS_ELECTRODE_NAME_LENGTH_MAX];
+	res = GDS_GNAUTILUS_GetChannelNames(*m_pHandle, device_name, &mountedModulesCount, electrode_names, &electrodeNamesCount);
+	
 	// Create table entries for each channel
 	QTableWidget *chan_table = ui->channels_tableWidget;
 	for (int chan_ix = 0; chan_ix < GDS_GNAUTILUS_CHANNELS_MAX; chan_ix++)
 	{
 		chan_table->insertRow(chan_table->rowCount());
-		if (m_pChannel_labels->size() > chan_ix)
-		{
+		if (m_pChannel_labels->size() > chan_ix) {
 			chan_table->setItem(chan_ix, 0, new QTableWidgetItem(QString::fromStdString(m_pChannel_labels->at(chan_ix))));
-		}
-		else
-		{
+		} else if (chan_ix < electrodeNamesCount) {
+			chan_table->setItem(chan_ix, 0, new QTableWidgetItem(electrode_names[chan_ix]));
+		} else {
 			chan_table->setItem(chan_ix, 0, new QTableWidgetItem(tr("%1").arg(chan_ix + 1)));
 		}
 		chan_table->setCellWidget(chan_ix, 1, new QCheckBox());  // Acquire
@@ -55,13 +69,9 @@ void NautilusDlg::create_widgets()
 		chan_table->setItem(chan_ix, 8, new QTableWidgetItem(tr("?")));  // Impedance
 	}
 
-	// Get device_name for API calls
-	char(*device_name)[DEVICE_NAME_LENGTH_MAX] = new char[1][DEVICE_NAME_LENGTH_MAX];
-	std::strcpy(device_name[0], m_config.DeviceInfo.Name);
-
 	// Get Sampling Rates
 	size_t supportedSamplingRatesCount;
-	GDS_RESULT res = GDS_GNAUTILUS_GetSupportedSamplingRates(*m_pHandle, device_name, NULL, &supportedSamplingRatesCount);
+	res = GDS_GNAUTILUS_GetSupportedSamplingRates(*m_pHandle, device_name, NULL, &supportedSamplingRatesCount);
 	gnautilus_sample_rates.resize(supportedSamplingRatesCount);
 	res = GDS_GNAUTILUS_GetSupportedSamplingRates(*m_pHandle, device_name, gnautilus_sample_rates.data(), &supportedSamplingRatesCount);
 	ui->samplerate_comboBox->clear();
@@ -94,6 +104,7 @@ void NautilusDlg::create_widgets()
 	
 	delete[] device_name;
 	device_name = NULL;
+	delete[] electrode_names;
 }
 
 
@@ -124,7 +135,7 @@ void NautilusDlg::update_ui()
 			dev_cfg->Channels[chan_ix].Sensitivity) - gnautilus_sensitivities.begin());
 		
 		QSpinBox* chan_bipolar = (QSpinBox*)ui->channels_tableWidget->cellWidget(chan_ix, 3);
-		chan_bipolar->setRange(0, GDS_GNAUTILUS_CHANNELS_MAX);
+		chan_bipolar->setRange(-1, GDS_GNAUTILUS_CHANNELS_MAX);
 		chan_bipolar->setValue(dev_cfg->Channels[chan_ix].BipolarChannel);
 
 		QCheckBox *chan_car = (QCheckBox*)ui->channels_tableWidget->cellWidget(chan_ix, 6);
@@ -520,6 +531,10 @@ void NautilusDlg::accept()
 		dev_cfg->Channels[chan_ix].UsedForNoiseReduction = chan_noise->isChecked();
 	}
 
+	// The following items are set in the gNautilusDemo.cpp but are not exposed via GUI elements:
+	dev_cfg->Slave = FALSE;
+	// dev_cfg->NumberOfScans = 4;
+	dev_cfg->InputSignal = GDS_GNAUTILUS_INPUT_SIGNAL_ELECTRODE;
 
 	QDialog::accept();
 }
