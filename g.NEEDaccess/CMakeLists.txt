@@ -3,18 +3,9 @@ project(gNEEDaccess
 		LANGUAGES CXX
 		VERSION 0.0.1)
 
-if(NOT TARGET LSL::lsl)
-    # when building out of tree LSL_ROOT needs to be specified on the cmd line
-    file(TO_CMAKE_PATH "${LSL_INSTALL_ROOT}" LSL_INSTALL_ROOT)
-    list(APPEND LSL_INSTALL_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../LSL/liblsl/build/install")
-    find_package(LSL HINTS ${LSL_INSTALL_ROOT}/share/LSL/ ${LSL_INSTALL_ROOT}/LSL/share/LSL QUIET)
-	if(NOT LSL_FOUND)
-		message(FATAL_ERROR "Precompiled LSL was not found. See https://github.com/labstreaminglayer/labstreaminglayer/blob/master/doc/BUILD.md#lsl_install_root for more information.")
-	endif()
-    list(APPEND CMAKE_MODULE_PATH ${LSL_DIR})
-    message(STATUS "Looking for LSLCMake in ${LSL_DIR}")
-    include(LSLCMake)
-endif()
+list(APPEND LSL_INSTALL_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../LSL/liblsl/build/install")
+include(Findliblsl.cmake)
+
 
 # GENERAL CONFIG #
 LIST(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
@@ -23,8 +14,11 @@ LIST(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 # THIRD PARTY LIBRARIES #
 
 # Qt
-# If Qt5_DIR is not supplied, use default directory defined in ${CMAKE_CURRENT_LIST_DIR}/../../../cmake/LSLSaneDefaults
-find_package(Qt5 REQUIRED COMPONENTS Core Xml Gui Widgets)
+set(CMAKE_INCLUDE_CURRENT_DIR ON)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTOUIC ON)
+set(CMAKE_AUTORCC ON)
+find_package(Qt5 REQUIRED COMPONENTS Xml Widgets)
 
 # Boost
 # find_package(Boost REQUIRED)
