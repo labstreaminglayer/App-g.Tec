@@ -22,15 +22,36 @@ struct GDS_DeviceInfo
 };
 
 
-bool MainWindow::handleResult(std::string calling_func, GDS_RESULT ret)
+bool MainWindow::handleResult(const char* calling_func, GDS_RESULT ret)
 {
 	bool res = true;
 	if (ret.ErrorCode)
 	{
-		std::cerr << "ERROR on " << calling_func << " : " << ret.ErrorMessage;
+		qWarning() << "GDS ERROR " << ret.ErrorCode << calling_func << " : " << ret.ErrorMessage;
 		res = false;
+		m_bWarnLogfile = true;
+		QApplication::alert(this);
 	}
 	return res;
+}
+
+
+void dataAcquisitionErrorCallback(GDS_HANDLE connectionHandle, GDS_RESULT res, void *usrData) {
+	if (res.ErrorCode) {
+		qWarning() << "GDS ERROR " << res.ErrorCode
+				   << " on dataAcquisitionError : " << res.ErrorMessage;
+		MainWindow *thisWin = reinterpret_cast<MainWindow *>(usrData);
+		thisWin->m_bWarnLogfile = true;
+		QApplication::alert(thisWin);
+	}
+}
+
+
+void serverDiedCallback(GDS_HANDLE connectionHandle, void *usrData) {
+	qWarning() << "GDS server died";
+	MainWindow *thisWin = reinterpret_cast<MainWindow *>(usrData);
+	thisWin->m_bWarnLogfile = true;
+	QApplication::alert(thisWin);
 }
 
 
@@ -44,7 +65,7 @@ void MainWindow::dataReadyCallback(GDS_HANDLE connectionHandle, void* usrData)
 	if (scans_available > 0)
 	{
 		thisWin->m_eegOutlet->push_chunk_multiplexed(&thisWin->m_dataBuffer[0], scans_available * thisWin->m_devInfo.nsamples_per_scan);
-		thisWin->m_samplesPushed += scans_available;
+		thisWin->samplesPushed((int)scans_available);
 	}
 	thisWin->mutex.unlock();
 }
@@ -58,7 +79,8 @@ MainWindow::MainWindow(QWidget *parent, const QString config_file)
 	load_config(config_file);
 	GDS_Initialize();  // Initialize the g.NEEDaccess library
 	m_pTimer = new QTimer(this);
-	connect(m_pTimer, SIGNAL(timeout()), this, SLOT(notify_samples_pushed()));
+	connect(m_pTimer, SIGNAL(timeout()), this, SLOT(updateNotification()));
+	connect(this, &MainWindow::samplesPushed, this, &MainWindow::on_samplesPushed);
 }
 
 
@@ -312,6 +334,10 @@ void MainWindow::on_goPushButton_clicked()
 			handleResult("GDS_StopAcquisition", GDS_StopAcquisition(m_connectionHandle));
 		handleResult("GDS_SetDataReadyCallback",
 			GDS_SetDataReadyCallback(m_connectionHandle, NULL, 0, NULL));
+		handleResult("GDS_SetDataAcquisitionErrorCallback",
+			GDS_SetDataAcquisitionErrorCallback(m_connectionHandle, NULL, NULL));
+		handleResult("GDS_SetServerDiedCallback", GDS_SetServerDiedCallback(m_connectionHandle, NULL, NULL));
+
 		m_bStreaming = false;
 		delete this->m_eegOutlet;
 		this->m_eegOutlet = NULL;
@@ -321,15 +347,19 @@ void MainWindow::on_goPushButton_clicked()
 	{
 		bool success = true;
 
+		handleResult("GDS_SetDataAcquisitionErrorCallback",
+			GDS_SetDataAcquisitionErrorCallback(
+				m_connectionHandle, dataAcquisitionErrorCallback, this));
+
+		handleResult("GDS_SetServerDiedCallback",
+			GDS_SetServerDiedCallback(m_connectionHandle, serverDiedCallback, this));
+
 		// If we are the daq unit creator, set config
 		if (m_isCreator)
 		{
 			success &= handleResult("GDS_SetConfiguration",
 				GDS_SetConfiguration(m_connectionHandle, &m_devConfigs[0], m_devConfigs.size()));
 		}
-
-		// TODO: GDS_SetDataAcquisitionErrorCallback
-		// TODO: GDS_SetServerDiedCallback
 
 		// Get all device-specific parameters into a convenient structure for LSL info
 		m_devInfo = dev_info_type();  // reset m_devInfo;
@@ -515,11 +545,15 @@ void MainWindow::on_goPushButton_clicked()
 				size_t bandpassFiltersCount;
 				size_t notchFiltersCount;
 				GDS_RESULT res = GDS_GNAUTILUS_GetBandpassFilters(m_connectionHandle, device_names, NULL, &bandpassFiltersCount);
+				handleResult("GDS_GNAUTILUS_GetBandpassFilters", res);
 				std::vector<GDS_FILTER_INFO> bandpassFilters(bandpassFiltersCount);
 				res = GDS_GNAUTILUS_GetBandpassFilters(m_connectionHandle, device_names, bandpassFilters.data(), &bandpassFiltersCount);
+				handleResult("GDS_GNAUTILUS_GetBandpassFilters", res);
 				res = GDS_GNAUTILUS_GetNotchFilters(m_connectionHandle, device_names, NULL, &notchFiltersCount);
+				handleResult("GDS_GNAUTILUS_GetNotchFilters", res);
 				std::vector<GDS_FILTER_INFO> notchFilters(notchFiltersCount);
 				res = GDS_GNAUTILUS_GetNotchFilters(m_connectionHandle, device_names, notchFilters.data(), &notchFiltersCount);
+				handleResult("GDS_GNAUTILUS_GetNotchFilters", res);
 
 				// Copy the result into thisDevInfo
 				for (int chan_ix = 0; chan_ix < GDS_GNAUTILUS_CHANNELS_MAX; chan_ix++)
@@ -713,12 +747,13 @@ void MainWindow::on_goPushButton_clicked()
 			success &= handleResult("GDS_StartAcquisition", GDS_StartAcquisition(m_connectionHandle));
 		success &= handleResult("GDS_StartStreaming", GDS_StartStreaming(m_connectionHandle));
 		m_bStreaming = success;
-		
-		statusBar()->showMessage("LSL stream created. Waiting for device to return samples...");
-		m_pTimer->start(500);
-		ui->goPushButton->setText("Stop!");
+		if (m_bStreaming) {
+			statusBar()->showMessage("LSL stream created. Waiting for device to return samples...");
+			m_pTimer->start(500);
+		}
 	}
 	ui->connectPushButton->setDisabled(m_bStreaming);
+	ui->goPushButton->setText(m_bStreaming ? "Stop!" : "Go!");
 	ui->goPushButton->setDisabled(false);
 }
 
@@ -801,11 +836,39 @@ void MainWindow::save_config(const QString filename)
 }
 
 
-void MainWindow::notify_samples_pushed()
-{
+void MainWindow::on_samplesPushed(int nSamples) {
+	m_samplesPushed += nSamples;
+}
+
+
+void MainWindow::updateNotification() {
+	double now = lsl::local_clock();
+	double recentRate = double(m_samplesPushed - m_lastNotifSamples) / (now - m_lastNotifTime);
+	QString message = m_bWarnLogfile ? "See log for warnings. " : "";
 	if (m_samplesPushed > 0)
 	{
-		QString message = QString("Total samples pushed: ") + QString::number(m_samplesPushed);
+		m_effectiveSrate = 0.9 * m_effectiveSrate + 0.1 * recentRate;
+
+		message += QString("Total samples pushed: ") + QString::number(m_samplesPushed) + "\t(" +
+				   QString::number(m_effectiveSrate) + " Hz)";
+		if (m_effectiveSrate < 0.8 * m_devInfo.nominal_srate) {
+			ui->statusBar->setStyleSheet("color: red");
+			if (m_bWarnRate) {
+				qWarning() << "Effective sample rate dropped below 80% of nominal rate ("
+						   << m_effectiveSrate << " vs " << m_devInfo.nominal_srate << ").";
+				m_bWarnRate = false;
+			}
+		} else {
+			if (!m_bWarnRate) {
+				qInfo() << "Effective sample rate back above 80% of nominal rate.";
+			}
+			ui->statusBar->setStyleSheet("color: black");
+			m_bWarnRate = true;
+		}
 		statusBar()->showMessage(message, 500);
+	} else {
+		m_effectiveSrate = recentRate;
 	}
+	m_lastNotifTime = now;
+	m_lastNotifSamples = m_samplesPushed;
 }

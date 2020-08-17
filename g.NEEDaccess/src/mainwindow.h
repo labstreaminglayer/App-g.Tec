@@ -20,9 +20,11 @@ public:
     explicit MainWindow(QWidget *parent = 0,
 		const QString config_file = default_config_fname);
     ~MainWindow();
+	bool m_bWarnLogfile = false;
 
 signals:
 	void dataReady(void);
+	void samplesPushed(int nSamples);
 
 private slots:
 	// GUI
@@ -33,7 +35,8 @@ private slots:
 	void on_connectPushButton_clicked();
     void on_goPushButton_clicked();
 	void on_availableListWidget_itemSelectionChanged();
-	void notify_samples_pushed();
+	void on_samplesPushed(int nSamples);
+	void updateNotification();
 
 private:
 	struct filter_type {
@@ -67,10 +70,10 @@ private:
 	};
 
 	// Static methods
-	static bool handleResult(std::string calling_func, GDS_RESULT ret);
 	static void dataReadyCallback(GDS_HANDLE connectionHandle, void* usrData);
 	
 	// Private methods
+	bool handleResult(const char *calling_func, GDS_RESULT ret);
     void load_config(const QString filename);
     void save_config(const QString filename);
 	bool do_connect();
@@ -83,7 +86,12 @@ private:
 	QTimer* m_pTimer;			// The timer will be started when Go is clicked. Whenever it times out, the status bar will be updated with the number of samples pushed.
 	bool m_bConnected = false;
 	bool m_bStreaming = false;
+	bool m_bWarnRate = true;
+	double m_lastNotifTime = 0;
+	size_t m_lastNotifSamples = 0;
+	double m_effectiveSrate = 0;
 	size_t m_samplesPushed = 0;
+
 	std::vector<std::string> m_chanLabels;  // g.HIamp and g.USBamp do not store channel names, so we need to manage them via config file.
 	std::vector<double> m_chanImpedances;  // TODO: Use GDS_GNAUTILUS_GetImpedance, GDS_GUSBAMP_GetImpedance
 
