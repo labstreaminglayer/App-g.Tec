@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.5)
 project(gNEEDaccess
-		LANGUAGES CXX
+		LANGUAGES CXX C
 		VERSION 0.14)
 
 
@@ -84,6 +84,7 @@ target_link_libraries(${target}
 
 set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 14)
 # target_compile_features(${PROJECT_NAME} PRIVATE cxx_auto_type cxx_lambda_init_captures)
+target_compile_definitions(${PROJECT_NAME} PRIVATE _CRT_SECURE_NO_WARNINGS)
 
 # Deployment # 
 installLSLApp(${target})  # Will handle Qt and LSL libraries

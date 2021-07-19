@@ -618,7 +618,7 @@ void GUSBDlg::on_impedance_pushButton_clicked()
 			GDS_RESULT res = GDS_GUSBAMP_GetImpedance(*m_pHandle, device_name, (int)(chan_ix + 1), &impedance);
 			m_pChannel_impedances->push_back(impedance);
 
-			chan_table->item(chan_ix, 5)->setText(QString::number(m_pChannel_impedances->at(cfg_ix*GDS_GUSBAMP_CHANNELS_MAX + chan_ix)));
+			chan_table->item((int)chan_ix, 5)->setText(QString::number(m_pChannel_impedances->at(cfg_ix*GDS_GUSBAMP_CHANNELS_MAX + chan_ix)));
 			qApp->processEvents();
 		}
 		

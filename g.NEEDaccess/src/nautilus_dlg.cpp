@@ -130,7 +130,7 @@ void NautilusDlg::update_ui()
 		chan_acquire->setChecked(dev_cfg->Channels[chan_ix].Enabled);
 
 		QSpinBox* chan_range = (QSpinBox*)ui->channels_tableWidget->cellWidget(chan_ix, 2);
-		chan_range->setRange(0, gnautilus_sensitivities.size());
+		chan_range->setRange(0, (int)gnautilus_sensitivities.size());
 		chan_range->setValue(std::find(gnautilus_sensitivities.begin(), gnautilus_sensitivities.end(),
 			dev_cfg->Channels[chan_ix].Sensitivity) - gnautilus_sensitivities.begin());
 		
